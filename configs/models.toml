@@ -1,0 +1,49 @@
+[paths]
+models_dir = "models"
+outputs_dir = "outputs"
+sam3_bridge = "runtime/sam3_cpp/build/sam3_bridge"
+
+[yolo]
+# Accuracy-first default for comparison. Change to yolo26n.pt for speed.
+checkpoint = "yolo26l.pt"
+confidence = 0.20
+image_size = 1280
+device = "auto"
+
+[rfdetr]
+# Current Apache-2.0 core checkpoint. It is downloaded by RF-DETR itself.
+variant = "large"
+checkpoint = "rf-detr-large-2026.pth"
+confidence = 0.20
+device = "auto"
+
+[sam3]
+# Official Meta CUDA runtime is the accuracy/full-feature backend.
+backend = "official"
+official_image_repo_id = "facebook/sam3"
+official_image_filename = "sam3.pt"
+official_video_repo_id = "facebook/sam3.1"
+official_video_filename = "sam3.1_multiplex.pt"
+official_runtime_repo = "https://github.com/facebookresearch/sam3.git"
+official_runtime_commit = "8f0b7f4d4e7eda2ed606ebde6702c93359ad01da"
+
+# Public, non-gated community Q8 fallback. Q8_0 is weight-only 8-bit GGML.
+q8_repo_id = "PABannier/sam3.cpp"
+q8_filename = "sam3-q8_0.ggml"
+q8_revision = "main"
+q8_runtime_repo = "https://github.com/PABannier/sam3.cpp.git"
+q8_runtime_commit = "01832ef85fcc8eb6488f1d01cd247f07e96ff5a9"
+threads = 8
+use_gpu = true
+encode_image_size = 0
+score_threshold = 0.35
+nms_threshold = 0.10
+compile = false
+max_num_objects = 64
+multiplex_count = 16
+use_flash_attention_3 = false
+
+[playground]
+host = "127.0.0.1"
+port = 7860
+max_video_frames = 300
