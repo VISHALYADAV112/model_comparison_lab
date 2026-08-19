@@ -191,7 +191,9 @@ def test_pruner_keeps_first_and_latest_conditioning_frames() -> None:
             "cond_frame_outputs": {
                 index: {"value": index} for index in range(0, 100, 10)
             },
-            "non_cond_frame_outputs": {index: {"value": index} for index in range(100)},
+            "non_cond_frame_outputs": {
+                index: {"value": index} for index in range(100) if index % 10
+            },
         },
         "output_dict_per_obj": {
             0: {
@@ -199,14 +201,14 @@ def test_pruner_keeps_first_and_latest_conditioning_frames() -> None:
                     index: {"value": index} for index in range(0, 100, 10)
                 },
                 "non_cond_frame_outputs": {
-                    index: {"value": index} for index in range(100)
+                    index: {"value": index} for index in range(100) if index % 10
                 },
             }
         },
         "temp_output_dict_per_obj": {},
         "consolidated_frame_inds": {
             "cond_frame_outputs": set(range(0, 100, 10)),
-            "non_cond_frame_outputs": set(range(100)),
+            "non_cond_frame_outputs": set(),
         },
         "first_ann_frame_idx": 0,
         "frames_already_tracked": {index: {} for index in range(100)},
@@ -237,6 +239,60 @@ def test_pruner_keeps_first_and_latest_conditioning_frames() -> None:
     assert tracker_state["first_ann_frame_idx"] == 60
     assert state["tracker_metadata"]["obj_id_to_score"] == {4: 0.9}
     assert telemetry["active_objects"] == 1
+
+
+def test_pruner_keeps_meta_prompt_and_consolidated_indices_equal() -> None:
+    prompt_frames = [0, 16, 32, 48, 56]
+    tracker_state = {
+        "obj_ids": [4],
+        "point_inputs_per_obj": {0: {}},
+        "mask_inputs_per_obj": {0: {frame: f"mask {frame}" for frame in prompt_frames}},
+        "output_dict": {
+            "cond_frame_outputs": {0: {"value": 0}},
+            "non_cond_frame_outputs": {
+                frame: {"value": frame} for frame in range(1, 60)
+            },
+        },
+        "output_dict_per_obj": {
+            0: {
+                "cond_frame_outputs": {0: {"value": 0}},
+                "non_cond_frame_outputs": {
+                    frame: {"value": frame} for frame in range(1, 60)
+                },
+            }
+        },
+        "temp_output_dict_per_obj": {},
+        "consolidated_frame_inds": {
+            "cond_frame_outputs": {0},
+            "non_cond_frame_outputs": {16, 32, 48, 56},
+        },
+        "first_ann_frame_idx": 0,
+        "frames_already_tracked": {frame: {} for frame in range(60)},
+    }
+    state = {
+        "cached_frame_outputs": {frame: {} for frame in range(60)},
+        "sam2_inference_states": [tracker_state],
+        "tracker_metadata": {
+            "obj_ids_all_gpu": np.asarray([4]),
+            "rank0_metadata": {},
+        },
+        "generator_state": {
+            "hotstart_buffer": [],
+            "postprocess_yield_list": [],
+            "unconfirmed_obj_ids_per_frame": {},
+        },
+    }
+
+    prune_continuous_state(state, processed_frame=59, history_frames=32)
+
+    remaining_inputs = set(tracker_state["mask_inputs_per_obj"][0])
+    consolidated = tracker_state["consolidated_frame_inds"]
+    all_consolidated = (
+        consolidated["cond_frame_outputs"] | consolidated["non_cond_frame_outputs"]
+    )
+    assert remaining_inputs == {16, 32, 48, 56}
+    assert all_consolidated == remaining_inputs
+    assert 16 in tracker_state["output_dict"]["non_cond_frame_outputs"]
 
 
 def test_track_archive_keeps_best_crop_and_manual_identity_columns(

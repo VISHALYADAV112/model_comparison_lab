@@ -519,9 +519,6 @@ def _prune_mapping_before(value: Any, cutoff: int) -> None:
 
 def _prune_tracker_state(tracker_state: dict[str, Any], cutoff: int) -> None:
     output_dict = tracker_state.get("output_dict", {})
-    non_cond = output_dict.get("non_cond_frame_outputs", {})
-    _prune_mapping_before(non_cond, cutoff)
-
     point_inputs = tracker_state.get("point_inputs_per_obj", {})
     mask_inputs = tracker_state.get("mask_inputs_per_obj", {})
     per_object_outputs = tracker_state.get("output_dict_per_obj", {})
@@ -535,20 +532,25 @@ def _prune_tracker_state(tracker_state: dict[str, Any], cutoff: int) -> None:
     retained_by_object: dict[int, set[int]] = {}
     for object_index in object_indices:
         point_frames = {int(frame) for frame in point_inputs.get(object_index, {})}
-        object_cond = per_object_outputs.get(object_index, {}).get(
-            "cond_frame_outputs", {}
-        )
-        cond_frames = sorted(
-            int(frame) for frame in object_cond if isinstance(frame, int)
-        )
-        retained = point_frames | set(cond_frames[-4:])
+        object_masks = mask_inputs.get(object_index, {})
+        mask_frames = sorted(int(frame) for frame in object_masks)
+        retained = point_frames | set(mask_frames[-4:])
         retained_by_object[int(object_index)] = retained
         retained_input_frames.update(retained)
-        object_masks = mask_inputs.get(object_index, {})
         if isinstance(object_masks, dict):
             for frame in list(object_masks):
                 if int(frame) not in retained:
                     object_masks.pop(frame, None)
+
+    non_cond = output_dict.get("non_cond_frame_outputs", {})
+    if isinstance(non_cond, dict):
+        for frame in list(non_cond):
+            if (
+                isinstance(frame, int)
+                and frame < cutoff
+                and frame not in retained_input_frames
+            ):
+                non_cond.pop(frame, None)
 
     cond = output_dict.get("cond_frame_outputs", {})
     if isinstance(cond, dict):
@@ -560,7 +562,16 @@ def _prune_tracker_state(tracker_state: dict[str, Any], cutoff: int) -> None:
 
     for per_object_key in ("output_dict_per_obj", "temp_output_dict_per_obj"):
         for object_index, per_object in tracker_state.get(per_object_key, {}).items():
-            _prune_mapping_before(per_object.get("non_cond_frame_outputs", {}), cutoff)
+            object_non_cond = per_object.get("non_cond_frame_outputs", {})
+            if isinstance(object_non_cond, dict):
+                for frame in list(object_non_cond):
+                    if (
+                        isinstance(frame, int)
+                        and frame < cutoff
+                        and frame
+                        not in retained_by_object.get(int(object_index), set())
+                    ):
+                        object_non_cond.pop(frame, None)
             object_cond = per_object.get("cond_frame_outputs", {})
             if isinstance(object_cond, dict):
                 keys = sorted(key for key in object_cond if isinstance(key, int))
@@ -569,18 +580,29 @@ def _prune_tracker_state(tracker_state: dict[str, Any], cutoff: int) -> None:
                     if key not in keep:
                         object_cond.pop(key, None)
 
-    consolidated = tracker_state.get("consolidated_frame_inds", {})
-    for frame_kind, values in consolidated.items():
-        if not isinstance(values, set):
-            continue
-        if frame_kind == "cond_frame_outputs":
-            values.intersection_update(retained_input_frames)
-        else:
-            values.difference_update({frame for frame in values if frame < cutoff})
     remaining_inputs: set[int] = set()
     for collection in (point_inputs, mask_inputs):
         for per_object in collection.values():
             remaining_inputs.update(int(frame) for frame in per_object)
+
+    # Meta asserts before every propagation that consolidated prompt-frame
+    # indices exactly equal the union of point and mask input indices. Detector
+    # reconditioning prompts are commonly stored as non-conditioning outputs,
+    # so both consolidated sets must follow the retained inputs rather than a
+    # generic age cutoff.
+    consolidated = tracker_state.get("consolidated_frame_inds", {})
+    cond_consolidated = consolidated.get("cond_frame_outputs", set())
+    non_cond_consolidated = consolidated.get("non_cond_frame_outputs", set())
+    if isinstance(cond_consolidated, set) and isinstance(non_cond_consolidated, set):
+        cond_consolidated.intersection_update(remaining_inputs)
+        non_cond_consolidated.intersection_update(remaining_inputs)
+        known = cond_consolidated | non_cond_consolidated
+        for frame in remaining_inputs - known:
+            if frame in cond:
+                cond_consolidated.add(frame)
+            elif frame in non_cond:
+                non_cond_consolidated.add(frame)
+
     if "first_ann_frame_idx" in tracker_state:
         tracker_state["first_ann_frame_idx"] = min(remaining_inputs, default=None)
 

@@ -73,6 +73,12 @@ mask prompts, and relies on complete-record rolling eviction instead:
 
 - <https://github.com/facebookresearch/sam3/blob/8f0b7f4d4e7eda2ed606ebde6702c93359ad01da/sam3/model/video_tracking_multiplex.py#L193-L195>
 
+Release 0.5.3 also preserves the latest four periodic detector-mask inputs per
+object regardless of whether Meta stores them as conditioning or
+non-conditioning outputs. It synchronizes `consolidated_frame_inds` to those
+retained input anchors because Meta's propagation preflight requires the two
+sets to be identical.
+
 A database containing only numeric SAM IDs cannot recognize a person after a
 track has ended. Release 0.5.1 archives each track's best crop and reserves
 fields for a verified identity and embedding. Human review can label those

@@ -1,6 +1,6 @@
 # Long-video and RTSP operation
 
-Release 0.5.2 makes continuous native SAM 3.1 tracking the default for very
+Release 0.5.3 makes continuous native SAM 3.1 tracking the default for very
 long files and RTSP surveillance. The release 0.4.0 isolated-chunk engine is
 still available as a fallback.
 
@@ -67,6 +67,9 @@ for first-frame-prompted VOS, while object-multiplex text tracking adds later
 detector prompts whose direct-mask records do not contain the trimmer's
 interactive-only fields. The lab instead evicts complete old records at each
 rolling-window boundary after retaining its configured 32-frame history.
+Release 0.5.3 additionally preserves the latest four periodic detector-mask
+prompt anchors per object and keeps Meta's input and consolidated-frame index
+sets exactly synchronized across rolling-window boundaries.
 
 ## RTSP surveillance
 
