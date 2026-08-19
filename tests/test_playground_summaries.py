@@ -21,8 +21,9 @@ def test_comparison_summary_explains_results_and_errors() -> None:
     assert "YOLO/test.pt" in summary
     assert "4" in summary
     assert "7.5 px" in summary
-    assert "Models that failed" in summary
-    assert "sam3" in summary
+    assert "Some models failed" in summary
+    assert "SAM 3" in summary
+    assert "RuntimeError: unavailable" in summary
 
 
 def test_video_summary_counts_frames_objects_and_masks() -> None:

@@ -27,6 +27,7 @@ def _records(value: str) -> list[str]:
 
 
 def comparison_summary(payload: dict) -> str:
+    display_names = {"yolo": "YOLO26-L", "rfdetr": "RF-DETR Large", "sam3": "SAM 3"}
     lines = [
         "### Comparison finished",
         "| Model | Objects / masks | Time | Smallest detected side |",
@@ -47,8 +48,11 @@ def comparison_summary(payload: dict) -> str:
         lines.append("| No model completed | 0 | — | — |")
     errors = payload.get("errors", {})
     if errors:
-        lines.extend(["", "#### Models that failed"])
-        lines.extend(f"- **{name}:** {message}" for name, message in errors.items())
+        lines.extend(["", "### ⚠️ Some models failed"])
+        for name, message in errors.items():
+            safe_message = str(message).replace("`", "'").replace("\n", " ")
+            lines.append(f"- **{display_names.get(name, name)}:** `{safe_message}`")
+        lines.append("Successful models are still shown below. The exact failure is also saved in the JSON report.")
     lines.extend(
         [
             "",

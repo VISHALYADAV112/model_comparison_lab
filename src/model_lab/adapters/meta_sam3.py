@@ -99,6 +99,18 @@ class MetaSam3Adapter:
         except ImportError:
             pass
 
+    @staticmethod
+    def _image_inference_context() -> Any:
+        """Match Meta's required mixed-precision context for SAM 3 images."""
+        import torch
+
+        # Meta enables these settings in its official image example for Ampere
+        # and newer GPUs. Scope autocast to this request so its precision state
+        # cannot leak into YOLO, RF-DETR, or another Gradio worker.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+
     def _write_image_manifest(
         self,
         *,
@@ -194,51 +206,52 @@ class MetaSam3Adapter:
             enable_inst_interactivity=(mode == "visual"),
         )
         try:
-            if mode == "text":
-                if not text and not positive_exemplars and not negative_exemplars:
-                    raise ValueError("Text mode needs text and/or an exemplar box")
-                processor = Sam3Processor(model, device="cuda", confidence_threshold=threshold)
-                state = processor.set_image(pil_image)
-                if text:
-                    state = processor.set_text_prompt(text, state)
-                for exemplar in positive_exemplars:
-                    state = processor.add_geometric_prompt(
-                        _xyxy_to_normalized_cxcywh(exemplar, pil_image.width, pil_image.height), True, state
+            with self._image_inference_context():
+                if mode == "text":
+                    if not text and not positive_exemplars and not negative_exemplars:
+                        raise ValueError("Text mode needs text and/or an exemplar box")
+                    processor = Sam3Processor(model, device="cuda", confidence_threshold=threshold)
+                    state = processor.set_image(pil_image)
+                    if text:
+                        state = processor.set_text_prompt(text, state)
+                    for exemplar in positive_exemplars:
+                        state = processor.add_geometric_prompt(
+                            _xyxy_to_normalized_cxcywh(exemplar, pil_image.width, pil_image.height), True, state
+                        )
+                    for exemplar in negative_exemplars:
+                        state = processor.add_geometric_prompt(
+                            _xyxy_to_normalized_cxcywh(exemplar, pil_image.width, pil_image.height), False, state
+                        )
+                    masks = _numpy(state["masks"])
+                    boxes = _numpy(state["boxes"])
+                    scores = _numpy(state["scores"])
+                    low_res = None
+                elif mode == "visual":
+                    predictor = model.inst_interactive_predictor
+                    predictor.set_image(pil_image)
+                    positives = list(positive_points)
+                    negatives = list(negative_points)
+                    all_points = positives + negatives
+                    point_coords = np.asarray(all_points, dtype=np.float32) if all_points else None
+                    point_labels = (
+                        np.asarray([1] * len(positives) + [0] * len(negatives), dtype=np.int32)
+                        if all_points
+                        else None
                     )
-                for exemplar in negative_exemplars:
-                    state = processor.add_geometric_prompt(
-                        _xyxy_to_normalized_cxcywh(exemplar, pil_image.width, pil_image.height), False, state
+                    prompt_box = np.asarray(box, dtype=np.float32) if box else None
+                    previous_logits = np.load(mask_input) if mask_input else None
+                    if point_coords is None and prompt_box is None and previous_logits is None:
+                        raise ValueError("Visual mode needs a point, box, or previous low-resolution mask")
+                    masks, scores, low_res = predictor.predict(
+                        point_coords=point_coords,
+                        point_labels=point_labels,
+                        box=prompt_box,
+                        mask_input=previous_logits,
+                        multimask_output=multimask,
                     )
-                masks = _numpy(state["masks"])
-                boxes = _numpy(state["boxes"])
-                scores = _numpy(state["scores"])
-                low_res = None
-            elif mode == "visual":
-                predictor = model.inst_interactive_predictor
-                predictor.set_image(pil_image)
-                positives = list(positive_points)
-                negatives = list(negative_points)
-                all_points = positives + negatives
-                point_coords = np.asarray(all_points, dtype=np.float32) if all_points else None
-                point_labels = (
-                    np.asarray([1] * len(positives) + [0] * len(negatives), dtype=np.int32)
-                    if all_points
-                    else None
-                )
-                prompt_box = np.asarray(box, dtype=np.float32) if box else None
-                previous_logits = np.load(mask_input) if mask_input else None
-                if point_coords is None and prompt_box is None and previous_logits is None:
-                    raise ValueError("Visual mode needs a point, box, or previous low-resolution mask")
-                masks, scores, low_res = predictor.predict(
-                    point_coords=point_coords,
-                    point_labels=point_labels,
-                    box=prompt_box,
-                    mask_input=previous_logits,
-                    multimask_output=multimask,
-                )
-                boxes = np.asarray([_box_from_mask(np.asarray(mask).squeeze().astype(bool)) for mask in masks])
-            else:
-                raise ValueError(f"Unknown SAM 3 image mode {mode!r}")
+                    boxes = np.asarray([_box_from_mask(np.asarray(mask).squeeze().astype(bool)) for mask in masks])
+                else:
+                    raise ValueError(f"Unknown SAM 3 image mode {mode!r}")
             return self._write_image_manifest(
                 image=image,
                 output_dir=output_dir,

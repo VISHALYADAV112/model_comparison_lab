@@ -6,27 +6,47 @@ from ..config import LabConfig
 from .service import PlaygroundService
 
 APP_CSS = """
-.gradio-container { max-width: 1480px !important; }
+.gradio-container {
+  max-width: 1480px !important;
+  color: var(--body-text-color, #172033);
+}
 .vision-hero {
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--border-color-primary, #cbd5e1);
   border-radius: 18px;
   padding: 24px 28px;
   margin-bottom: 14px;
-  background: linear-gradient(125deg, #eff6ff 0%, #f8fafc 52%, #ecfeff 100%);
+  background: var(--background-fill-secondary, #f1f5f9);
+  color: var(--body-text-color, #172033);
 }
-.vision-hero h1 { margin: 0 0 8px 0; color: #0f172a; font-size: 2rem; }
-.vision-hero p { margin: 0; color: #334155; font-size: 1.02rem; }
+.vision-hero h1 {
+  margin: 0 0 8px 0;
+  color: var(--body-text-color, #172033) !important;
+  font-size: 2rem;
+}
+.vision-hero p {
+  margin: 0;
+  color: var(--body-text-color-subdued, #475569) !important;
+  font-size: 1.02rem;
+}
 .step-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color-primary, #cbd5e1);
   border-radius: 14px;
   padding: 4px 16px 8px 16px;
-  background: #ffffff;
+  background: var(--background-fill-primary, #ffffff);
+  color: var(--body-text-color, #172033);
 }
 .result-card {
-  border-left: 5px solid #2563eb;
+  border: 1px solid var(--border-color-primary, #cbd5e1);
+  border-left: 5px solid var(--color-accent, #2563eb);
   border-radius: 10px;
   padding: 6px 14px;
-  background: #eff6ff;
+  background: var(--background-fill-secondary, #f1f5f9);
+  color: var(--body-text-color, #172033);
+}
+.step-card h1, .step-card h2, .step-card h3,
+.result-card h1, .result-card h2, .result-card h3,
+.result-card p, .result-card li, .result-card td, .result-card th {
+  color: var(--body-text-color, #172033) !important;
 }
 """
 
