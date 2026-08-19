@@ -65,6 +65,14 @@ Primary sources:
 - <https://github.com/facebookresearch/sam3/issues/481>
 - <https://github.com/facebookresearch/sam3/issues/514>
 
+Meta's pinned multiplex tracker defaults `trim_past_non_cond_mem_for_eval` to
+false and describes it as a memory optimization for semi-supervised VOS where
+only the first frame receives prompts. Release 0.5.2 keeps that mode disabled
+for continuous text grounding, which periodically supplies detector-generated
+mask prompts, and relies on complete-record rolling eviction instead:
+
+- <https://github.com/facebookresearch/sam3/blob/8f0b7f4d4e7eda2ed606ebde6702c93359ad01da/sam3/model/video_tracking_multiplex.py#L193-L195>
+
 A database containing only numeric SAM IDs cannot recognize a person after a
 track has ended. Release 0.5.1 archives each track's best crop and reserves
 fields for a verified identity and embedding. Human review can label those

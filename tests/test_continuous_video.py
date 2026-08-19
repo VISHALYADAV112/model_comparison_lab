@@ -18,6 +18,7 @@ from model_lab.continuous_video import (
     RollingFrameLoader,
     SparseFrameStore,
     TrackArchive,
+    _disable_meta_vos_autotrim,
     prune_continuous_state,
 )
 
@@ -78,6 +79,15 @@ def test_continuous_state_initializes_text_backbone_without_full_stream_loop() -
     assert model.find_input.text_ids.tolist() == [0]
 
 
+def test_continuous_text_tracking_disables_first_prompt_only_vos_trim() -> None:
+    tracker_model = SimpleNamespace(trim_past_non_cond_mem_for_eval=True)
+    model = SimpleNamespace(tracker=SimpleNamespace(model=tracker_model))
+
+    _disable_meta_vos_autotrim(model)
+
+    assert tracker_model.trim_past_non_cond_mem_for_eval is False
+
+
 def test_continuous_writer_publishes_atomic_live_preview(tmp_path: Path) -> None:
     cv2 = pytest.importorskip("cv2")
     writer = ContinuousResultWriter(
@@ -111,6 +121,23 @@ def test_continuous_writer_publishes_atomic_live_preview(tmp_path: Path) -> None
     finally:
         writer.video_writer.release()
         writer.archive.close()
+
+
+def test_continuous_writer_skips_ffmpeg_when_no_frames_were_yielded(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("cv2")
+    writer = ContinuousResultWriter(
+        tmp_path,
+        width=32,
+        height=24,
+        fps=10,
+        source_path=None,
+    )
+
+    assert writer.close() is None
+    assert not writer.raw_video.exists()
+    assert not writer.final_video.exists()
 
 
 def test_sparse_frame_store_does_not_scale_with_frame_number() -> None:

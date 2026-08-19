@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 19 August 2026. Project release: 0.5.1.
+Last updated: 19 August 2026. Project release: 0.5.2.
 
 ## Copy this into the new chat
 
@@ -11,7 +11,7 @@ then inspect git status, the latest commit, and
 /Users/vishalyadav/Desktop/Practice/long_range_vision/error.txt. The active
 repository is model_comparison_lab on branch main and changes must be tested
 and pushed to GitHub so the Rocky Linux server can pull them. Current priority:
-verify release 0.5.1's continuous native SAM 3.1 engine on the server. First
+verify release 0.5.2's continuous native SAM 3.1 engine on the server. First
 run one 60-frame window, then 300+ frames while checking that peak VRAM and
 rolling-state counts plateau. Compare native IDs/masks against ordinary
 whole-video output. Test RTSP only with a user-authorized camera reachable from
@@ -178,7 +178,7 @@ fails, restart the dashboard, confirm free VRAM with `nvidia-smi`, and test
 batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 `error.txt`; obtain it before claiming a remaining model or allocator bug.
 
-## Release 0.5.1 continuous native SAM 3.1 path
+## Release 0.5.2 continuous native SAM 3.1 path
 
 Dashboard tab **Long video and RTSP surveillance** defaults to **Continuous
 native SAM 3.1**. It keeps one predictor and tracking state for the complete
@@ -201,6 +201,16 @@ Release 0.5.1 also fixes the server traceback `Inplace update to inference
 tensor outside InferenceMode` by performing manual rolling-session prompt and
 language-cache initialization under `torch.inference_mode()`, matching Meta's
 decorated prompt path.
+
+Release 0.5.2 fixes the subsequent server `KeyError:
+'multistep_point_inputs'`. The lab had enabled Meta's
+`trim_past_non_cond_mem_for_eval`, an optimization documented for VOS where
+only the first frame is prompted. Text-based object multiplexing adds later
+detector mask prompts, and direct-mask outputs do not satisfy that trimmer's
+state contract. The flag now remains disabled; the existing 32-frame
+window-boundary pruner still bounds retained state. Empty partial runs also
+skip FFmpeg finalization instead of producing a secondary no-video-stream
+warning.
 
 `track_identities.sqlite3` stores first/last frame, best confidence, and best
 crop for each SAM ID, with nullable verified-identity/embedding fields. It
@@ -279,7 +289,7 @@ uv run --no-project --isolated --python 3.12 --with ruff \
 Model-weight inference cannot be fully validated on the Mac. Previous local
 checks compiled the Q8 bridge against its exact pinned source, validated the
 H.264 test video's raw frame byte count, and tested rendering with H.264.
-The local suite reports 60 passed and one Torch-specific regression skipped because
+The local suite reports 62 passed and one Torch-specific regression skipped because
 the isolated macOS runner has no Torch. A repository-wide Ruff run still reports four
 pre-existing import-order/unused-import findings in untouched files; changed
 files are clean.

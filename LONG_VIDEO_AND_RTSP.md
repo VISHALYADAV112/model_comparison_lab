@@ -1,6 +1,6 @@
 # Long-video and RTSP operation
 
-Release 0.5.1 makes continuous native SAM 3.1 tracking the default for very
+Release 0.5.2 makes continuous native SAM 3.1 tracking the default for very
 long files and RTSP surveillance. The release 0.4.0 isolated-chunk engine is
 still available as a fallback.
 
@@ -60,6 +60,13 @@ The dashboard refreshes **Live annotated detection preview** about once per
 second as SAM yields frames. SAM 3.1 deliberately holds its first 15 frames for
 native hot-start confirmation, so the first preview appears after that quality
 buffer has completed rather than immediately after frame zero.
+
+The continuous text-grounding path leaves Meta's
+`trim_past_non_cond_mem_for_eval` optimization disabled. Meta defines that path
+for first-frame-prompted VOS, while object-multiplex text tracking adds later
+detector prompts whose direct-mask records do not contain the trimmer's
+interactive-only fields. The lab instead evicts complete old records at each
+rolling-window boundary after retaining its configured 32-frame history.
 
 ## RTSP surveillance
 

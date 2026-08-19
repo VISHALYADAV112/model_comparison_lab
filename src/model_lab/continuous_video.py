@@ -673,6 +673,13 @@ def prune_continuous_state(
     }
 
 
+def _disable_meta_vos_autotrim(model: Any) -> None:
+    """Keep Meta's first-prompt-only VOS optimization out of text tracking."""
+    tracker_model = getattr(model.tracker, "model", model.tracker)
+    if hasattr(tracker_model, "trim_past_non_cond_mem_for_eval"):
+        tracker_model.trim_past_non_cond_mem_for_eval = False
+
+
 class TrackArchive:
     """Disk-backed SAM track catalogue and best crop for later human/ReID matching."""
 
@@ -774,6 +781,7 @@ class ContinuousResultWriter:
         self.live_preview = output_dir / "live_preview.jpg"
         self.raw_video = output_dir / "annotated.opencv.mp4"
         self.final_video = output_dir / "annotated.mp4"
+        self.written_frames = 0
         self.video_writer = cv2.VideoWriter(
             str(self.raw_video),
             cv2.VideoWriter_fourcc(*"mp4v"),
@@ -863,6 +871,7 @@ class ContinuousResultWriter:
         self._append_jsonl(self.frames_path, record)
         self.archive.update(frame_index, detections, packet.bgr)
         self.video_writer.write(frame)
+        self.written_frames += 1
         encoded, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
         if not encoded:
             raise RuntimeError("OpenCV could not encode the live annotated preview")
@@ -871,9 +880,12 @@ class ContinuousResultWriter:
         temporary_preview.replace(self.live_preview)
         return len(detections)
 
-    def close(self) -> Path:
+    def close(self) -> Path | None:
         self.video_writer.release()
         self.archive.close()
+        if self.written_frames == 0:
+            self.raw_video.unlink(missing_ok=True)
+            return None
         _encode_browser_video(self.raw_video, self.source_path, self.final_video)
         return self.final_video
 
@@ -964,9 +976,12 @@ class ContinuousSamRunner:
                 "unconfirmed_obj_ids_per_frame": {},
                 "postprocess_yield_list": [],
             }
-            tracker_model = getattr(model.tracker, "model", model.tracker)
-            if hasattr(tracker_model, "trim_past_non_cond_mem_for_eval"):
-                tracker_model.trim_past_non_cond_mem_for_eval = True
+            # Meta documents this flag only for first-frame-prompted VOS. The
+            # text-grounding tracker periodically adds detector mask prompts,
+            # and its direct-mask outputs omit fields that the auto-trimmer
+            # assumes are present. Our window-boundary pruner provides the
+            # bounded-memory behavior without invoking that incompatible path.
+            _disable_meta_vos_autotrim(model)
         return inference_state
 
     def run(
