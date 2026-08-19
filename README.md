@@ -7,7 +7,7 @@ It does not replace the earlier `long_range_vision` image/video pipeline. It giv
 ## The two SAM runtimes are one model family
 
 - `official`: Meta SAM 3 for images and SAM 3.1 Object Multiplex for video. This is the full-feature, accuracy-first CUDA backend. Its authenticated checkpoints are downloaded from `facebook/sam3` and `facebook/sam3.1`.
-- `q8`: the public, non-gated `PABannier/sam3.cpp` Q8_0 community conversion. It is used to measure the memory/quality trade-off and provides a CPU, Metal, or CUDA-capable GGML fallback. It is base SAM 3, not SAM 3.1 Object Multiplex.
+- `q8`: the public, non-gated `PABannier/sam3.cpp` Q8_0 community conversion. It is used to measure the memory/quality trade-off and provides CPU inference on Linux or Metal on Apple Silicon. The pinned runtime does not initialize CUDA, so it is memory-light but slow on the Linux server. It is base SAM 3, not SAM 3.1 Object Multiplex.
 
 The authenticated Hugging Face account on this Mac was successfully checked against both Meta repositories with a dry run on 18 August 2026. Authentication is machine-specific: run `hf auth login` again inside a new SSH server.
 
@@ -165,7 +165,7 @@ Multi-object visual tracking with a later correction:
   --direction both
 ```
 
-Run the public Q8 backend by changing `--backend official` to `--backend q8`. Object removal, mask-logit input, and backward/both propagation are official-only controls.
+Run the public Q8 backend by changing `--backend official` to `--backend q8`. On Linux this is a CPU correctness/memory experiment, not the fast NVIDIA path. Object removal, mask-logit input, and backward/both propagation are official-only controls.
 
 ## Project structure
 
@@ -178,7 +178,7 @@ model_comparison_lab/
 ├── scripts/
 │   ├── bootstrap_server.sh           # complete CUDA server setup
 │   ├── install_meta_sam3.sh          # pinned official Meta runtime
-│   ├── build_sam3_cpp.sh             # Q8 CPU/Metal/CUDA bridge
+│   ├── build_sam3_cpp.sh             # Q8 Linux CPU / Apple Metal bridge
 │   └── run_playground_lan.sh         # LAN/SSH-friendly Gradio launch
 ├── src/model_lab/
 │   ├── adapters/                     # YOLO, RF-DETR, official SAM, Q8 SAM

@@ -60,7 +60,7 @@ CAPABILITIES = """
 | **RF-DETR Large** | Transformer detector for familiar classes, often stronger on difficult objects | Closed class list; boxes rather than prompt-driven masks |
 | **Official SAM 3** | Find a described concept and return precise object masks | Needs a useful prompt and the most GPU memory |
 | **Official SAM 3.1** | Discover and track a described concept through video | Video processing can take time; use the 60-frame quick test before a full run |
-| **SAM 3 Q8** | Smaller community fallback for memory/quality comparison | Quantized base SAM 3, not SAM 3.1 Object Multiplex |
+| **SAM 3 Q8** | Smaller community fallback for memory/quality comparison | Quantized base SAM 3; CPU-only on Linux; not SAM 3.1 Object Multiplex |
 
 The dashboard intentionally excludes SAM 3 Agent because that adds a general multimodal language model. This lab focuses on native detection, segmentation and tracking.
 """
@@ -193,7 +193,8 @@ def create_app(config: LabConfig) -> gr.Blocks:
                 gr.Markdown(
                     "## Simple video tracking\n"
                     "Upload a short video, describe the target, and choose a memory/speed profile. Official SAM 3.1 "
-                    "has the strongest temporal feature set; quantized Q8 uses much less memory but is base SAM 3."
+                    "has the strongest temporal feature set; quantized Q8 uses much less memory but this pinned "
+                    "Linux runtime is CPU-only and can be very slow."
                 )
                 with gr.Row():
                     with gr.Column(scale=3, elem_classes="step-card"):
@@ -217,7 +218,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                     "official_low_vram",
                                 ),
                                 (
-                                    "Quantized SAM 3 Q8 — lowest memory, base tracker",
+                                    "Quantized SAM 3 Q8 — lowest memory, CPU-only on Linux",
                                     "q8",
                                 ),
                                 (

@@ -40,9 +40,15 @@ Putting them behind a common result contract gives comparable artifacts without 
 - `PABannier/sam3.cpp` pinned to commit `01832ef85fcc8eb6488f1d01cd247f07e96ff5a9`;
 - public `PABannier/sam3.cpp/sam3-q8_0.ggml`, downloaded with authentication explicitly disabled;
 - headless C++ bridge instead of its SDL desktop UI;
-- CPU, Apple Metal, or ggml CUDA selected at build time;
+- CPU on Linux or Apple Metal selected at build time; the pinned runtime does
+  not initialize its compiled GGML CUDA backend;
 - text PCS, visual PVS, multimask, correction points, and memory-bank video tracking;
 - no SAM 3.1 Object Multiplex.
+
+The headless bridge decodes video through one persistent FFmpeg raw-RGB stream.
+This avoids the upstream helper's fragile process-per-frame decoder and reads
+each frame fully before inference. It improves I/O reliability and overhead,
+but it does not turn Linux Q8 inference into GPU inference.
 
 This distinction matters: an 8-bit community conversion is not evidence that Meta's current official video checkpoint has been quantized faithfully.
 

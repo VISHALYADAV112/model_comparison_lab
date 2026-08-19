@@ -13,7 +13,7 @@ nvidia-smi
 nvcc --version
 ```
 
-If `nvcc` is unavailable, the official Python backend can still use a compatible prebuilt PyTorch CUDA wheel, but the Q8 C++ bridge will build CPU-only. Set `SAM3_CPP_BACKEND=cpu` explicitly in that case.
+The official Python backend uses the NVIDIA GPU through PyTorch CUDA. The pinned Q8 C++ runtime is different: it uses CPU on Linux even when `nvcc` is installed. `SAM3_CPP_BACKEND=cpu` is therefore the only supported Q8 Linux build in this lab; Apple systems can use `metal`.
 
 ## 2. Copy the workspace
 
@@ -119,11 +119,13 @@ CUDA out of memory:
 - Start with fewer video frames.
 - Stop other GPU processes after identifying them with `nvidia-smi`.
 
-Q8 bridge is CPU-only:
+Q8 logs `using CPU backend` on the NVIDIA server:
 
-- Install the CUDA toolkit so `nvcc` is present.
-- Rebuild with `SAM3_CPP_BACKEND=cuda ./scripts/build_sam3_cpp.sh`.
-- Read the CMake output and confirm `GGML_CUDA=ON`.
+- This is expected for the pinned `sam3.cpp` revision; compiling GGML CUDA does
+  not make that revision initialize a CUDA backend.
+- Use official SAM 3.1 with the minimum-VRAM profile for GPU-accelerated video.
+- Use Q8 only for a low-weight-memory comparison, and test a short frame range
+  first because full-video CPU tracking can take a long time.
 
 Browser cannot connect:
 
@@ -137,6 +139,13 @@ Q8 reports `Failed to inspect video`:
   existing `model-lab-bootstrap` Miniforge environment automatically.
 - If the tools were installed elsewhere, activate that Conda environment
   before launching and confirm `which ffmpeg` and `which ffprobe` both work.
+
+Q8 reports `Failed to decode frame 0`:
+
+- Version 0.3.2 replaces the upstream per-frame FFmpeg calls with one persistent
+  sequential decoder and prints FFmpeg errors directly in the server terminal.
+- Pull the update, reinstall the editable package, and rebuild the bridge; a
+  Python reinstall alone does not recompile the C++ executable.
 
 Annotated video downloads but does not play in the dashboard:
 

@@ -28,13 +28,17 @@ else
 fi
 
 if [[ "${BACKEND}" == "auto" ]]; then
-  if command -v nvcc >/dev/null; then
-    BACKEND="cuda"
-  elif [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
     BACKEND="metal"
   else
     BACKEND="cpu"
   fi
+fi
+
+if [[ "${BACKEND}" == "cuda" ]]; then
+  echo "The pinned sam3.cpp runtime initializes only CPU and Apple Metal backends." >&2
+  echo "Use the official SAM 3.1 backend for NVIDIA CUDA video inference." >&2
+  exit 2
 fi
 
 CMAKE_OPTIONS=(
@@ -43,15 +47,12 @@ CMAKE_OPTIONS=(
   -DSAM3_CPP_ROOT="${SOURCE_DIR}"
   -DCMAKE_BUILD_TYPE=Release
 )
-if [[ "${BACKEND}" == "cuda" ]]; then
-  CMAKE_OPTIONS+=( -DGGML_CUDA=ON -DSAM3_METAL=OFF )
-elif [[ "${BACKEND}" == "metal" ]]; then
-  CMAKE_OPTIONS+=( -DGGML_CUDA=OFF -DSAM3_METAL=ON )
+if [[ "${BACKEND}" == "metal" ]]; then
+  CMAKE_OPTIONS+=( -DGGML_CUDA=OFF -DSAM3_METAL=ON -DGGML_METAL=ON )
 else
-  CMAKE_OPTIONS+=( -DGGML_CUDA=OFF -DSAM3_METAL=OFF )
+  CMAKE_OPTIONS+=( -DGGML_CUDA=OFF -DSAM3_METAL=OFF -DGGML_METAL=OFF )
 fi
 
 cmake "${CMAKE_OPTIONS[@]}"
 cmake --build "${BUILD_DIR}" --config Release --parallel
 echo "Built ${BUILD_DIR}/sam3_bridge (${BACKEND})"
-

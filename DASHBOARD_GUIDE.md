@@ -31,7 +31,8 @@ deliberately want to inspect every known class.
 3. Choose a tracking engine/profile:
    - **Official balanced** uses CPU frame storage and a four-frame grounding batch.
    - **Official minimum VRAM** uses one grounding frame at a time.
-   - **Quantized Q8** uses base SAM 3's lightweight memory-bank tracker.
+   - **Quantized Q8** uses base SAM 3's memory-bank tracker with low weight
+     memory, but the pinned Linux runtime is CPU-only and can be very slow.
    - **Official maximum speed** requires a mostly free GPU.
 4. Choose **Whole uploaded video** for a complete result, or first run a
    60/300-frame test to check the prompt and memory profile.
@@ -44,7 +45,8 @@ process the entire input. In the advanced tab, a positive frame limit
 is the exact maximum number of unique output frames and `0` means the full
 propagation range.
 The quantized option is not SAM 3.1 and cannot be used to claim Object
-Multiplex quality or speed.
+Multiplex quality or speed. On the Linux server, use a short Q8 test first;
+use an official minimum-VRAM profile when you need NVIDIA GPU acceleration.
 
 ## Tab 3: advanced SAM image prompts
 

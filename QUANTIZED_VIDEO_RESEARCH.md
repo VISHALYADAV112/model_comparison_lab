@@ -6,8 +6,10 @@ Last reviewed: 2026-08-19
 
 Keep `PABannier/sam3.cpp` `sam3-q8_0.ggml` as the lab's quantized,
 text-prompted video backend. It is the only audited option that combines a
-public checkpoint, CUDA-capable local runtime, text-based discovery, and a
-memory-bank video tracker that our headless bridge already supports.
+public checkpoint, a low-weight-memory local runtime, text-based discovery,
+and a memory-bank video tracker that our headless bridge already supports.
+At the pinned revision it runs on Linux CPU or Apple Metal; it does not
+initialize CUDA, so it is not the fast path for the NVIDIA server.
 
 Do not describe it as SAM 3.1. It is quantized base SAM 3 and does not contain
 Object Multiplex. Official SAM 3.1 remains the quality/full-feature path.
@@ -22,7 +24,7 @@ Object Multiplex. Official SAM 3.1 remains the quality/full-feature path.
 | [`Reza2kn/sam3.1-nvfp4-detector-no-language`](https://huggingface.co/Reza2kn/sam3.1-nvfp4-detector-no-language) | NVFP4 detector without language | Not the complete text-prompted tracker required here | Reject for this task |
 | [`mlx-community/sam3.1-bf16`](https://huggingface.co/mlx-community/sam3.1-bf16) | MLX for Apple Silicon | Advertises tracking and realtime modes | Useful Mac experiment, not an NVIDIA L40S backend |
 | CoreML SAM 3.1 derivatives | CoreML / Apple Neural Engine | Platform-specific and often split into detector/encoder components | Not suitable for Rocky Linux CUDA |
-| [`PABannier/sam3.cpp`](https://huggingface.co/PABannier/sam3.cpp) | GGML Q8/Q4, CPU/Metal/CUDA | Base SAM 3 text and visual memory-bank tracking | Use Q8 now |
+| [`PABannier/sam3.cpp`](https://huggingface.co/PABannier/sam3.cpp) | GGML Q8/Q4, Linux CPU or Apple Metal at the pinned revision | Base SAM 3 text and visual memory-bank tracking | Keep Q8 as a low-memory comparison, not the Linux speed path |
 
 Hugging Face's model-tree metadata does not discover every community upload,
 so the audit also queried the public model API by `sam3.1` and inspected model
@@ -39,6 +41,11 @@ quality evaluation. Q8 is the more conservative first benchmark.
 The much smaller visual-only Q8/Q4 checkpoints remove the text encoder. They
 can track a point/box-selected object, but cannot independently discover all
 instances of an arbitrary text concept.
+
+The lab's version 0.3.2 bridge uses one persistent FFmpeg stream for sequential
+video decoding. That fixes the upstream helper's process-per-frame decode
+failure and removes repeated decoder startup overhead. Model inference remains
+CPU-bound on Linux, so a full 26-second clip can still be impractically slow.
 
 ## Memory and speed controls for official SAM 3.1
 

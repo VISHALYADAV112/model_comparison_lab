@@ -6,7 +6,7 @@
 | RF-DETR | RF-DETR Large 2026, `rf-detr-large-2026.pth` | Transformer boxes | COCO classes | Independent DETR/DINOv2 detector, strong accuracy and fine-tuning path | Closed vocabulary in this checkpoint; slower than small YOLO variants |
 | SAM 3 image | Official `facebook/sam3` | Open-vocabulary boxes + masks | Text, positive/negative exemplars, points, boxes, mask logits | Exhaustive concept segmentation and precise interactive masks | Gated checkpoint, CUDA-first runtime, prompt quality matters |
 | SAM 3.1 video | Official `facebook/sam3.1` | Discovery + multi-object masks/tracks | Text, points, boxes, refinements | Object Multiplex shared-memory tracking; native temporal evidence | Heavy server runtime; not an 8-bit checkpoint |
-| SAM 3 Q8 | Public `PABannier/sam3.cpp` | Quantized images and memory-bank video tracking | Text, exemplars, points, boxes | Non-gated 1.1 GB Q8 weight file; CPU/Metal/CUDA bridge; lowest-memory text-video option in this lab | Community conversion of base SAM 3; not official SAM 3.1 or Object Multiplex |
+| SAM 3 Q8 | Public `PABannier/sam3.cpp` | Quantized images and memory-bank video tracking | Text, exemplars, points, boxes | Non-gated 1.1 GB Q8 weight file; Linux CPU / Apple Metal bridge; lowest weight-memory text-video option in this lab | Community conversion of base SAM 3; CPU-only and slow on Linux; not official SAM 3.1 or Object Multiplex |
 
 ## Why YOLO26 Large
 

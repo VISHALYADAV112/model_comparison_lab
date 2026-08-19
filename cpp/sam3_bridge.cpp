@@ -1,6 +1,7 @@
 #include "sam3.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -14,10 +15,86 @@
 
 namespace {
 
+#ifdef _WIN32
+#define MODEL_LAB_POPEN _popen
+#define MODEL_LAB_PCLOSE _pclose
+#define MODEL_LAB_POPEN_MODE "rb"
+#else
+#define MODEL_LAB_POPEN popen
+#define MODEL_LAB_PCLOSE pclose
+#define MODEL_LAB_POPEN_MODE "r"
+#endif
+
 struct cli_args {
     std::string mode;
     std::map<std::string, std::vector<std::string>> values;
     std::map<std::string, bool> flags;
+};
+
+std::string shell_quote(const std::string & value) {
+    std::string quoted = "'";
+    for (const char ch : value) {
+        if (ch == '\'') quoted += "'\\''";
+        else quoted += ch;
+    }
+    quoted += "'";
+    return quoted;
+}
+
+class sequential_video_reader {
+public:
+    sequential_video_reader(const std::string & path, int width, int height)
+        : width_(width), height_(height) {
+        if (width_ <= 0 || height_ <= 0) throw std::runtime_error("Invalid video dimensions");
+        std::ostringstream command;
+        command << "ffmpeg -nostdin -loglevel error -noautorotate -i " << shell_quote(path)
+                << " -map 0:v:0 -an -sn -dn -vsync 0 -c:v rawvideo -threads:v 1"
+                << " -f rawvideo -pix_fmt rgb24 pipe:1";
+        pipe_ = MODEL_LAB_POPEN(command.str().c_str(), MODEL_LAB_POPEN_MODE);
+        if (!pipe_) throw std::runtime_error("Failed to start the FFmpeg frame decoder");
+    }
+
+    sequential_video_reader(const sequential_video_reader &) = delete;
+    sequential_video_reader & operator=(const sequential_video_reader &) = delete;
+
+    ~sequential_video_reader() {
+        if (pipe_) MODEL_LAB_PCLOSE(pipe_);
+    }
+
+    sam3_image frame(int requested_index) {
+        if (requested_index < next_index_) {
+            throw std::runtime_error("The sequential video reader cannot seek backwards");
+        }
+        sam3_image image;
+        while (next_index_ <= requested_index) {
+            image.width = width_;
+            image.height = height_;
+            image.channels = 3;
+            image.data.resize(static_cast<size_t>(width_) * height_ * 3);
+            size_t offset = 0;
+            while (offset < image.data.size()) {
+                const size_t count = std::fread(
+                    image.data.data() + offset,
+                    1,
+                    image.data.size() - offset,
+                    pipe_
+                );
+                if (count == 0) {
+                    image.data.clear();
+                    return image;
+                }
+                offset += count;
+            }
+            ++next_index_;
+        }
+        return image;
+    }
+
+private:
+    FILE * pipe_ = nullptr;
+    int width_ = 0;
+    int height_ = 0;
+    int next_index_ = 0;
 };
 
 std::string json_escape(const std::string & value) {
@@ -263,6 +340,7 @@ int run_video(const cli_args & args) {
     const int start_frame = std::max(0, integer(args, "--start-frame", 0));
     const int max_frames = integer(args, "--max-frames", 0);
     const int end_frame = max_frames > 0 ? std::min(info.n_frames, start_frame + max_frames) : info.n_frames;
+    sequential_video_reader video_reader(video_path, info.width, info.height);
     const std::vector<refinement> refinements = [&]() {
         std::vector<refinement> values;
         for (const auto & item : many(args, "--refine")) values.push_back(parse_refinement(item));
@@ -283,7 +361,7 @@ int run_video(const cli_args & args) {
         auto tracker = sam3_create_tracker(*model, video_params);
         if (!tracker) throw std::runtime_error("Failed to create text tracker");
         for (int frame_index = start_frame; frame_index < end_frame; ++frame_index) {
-            const auto frame = sam3_decode_video_frame(video_path, frame_index);
+            const auto frame = video_reader.frame(frame_index);
             if (frame.data.empty()) throw std::runtime_error("Failed to decode frame " + std::to_string(frame_index));
             auto result = sam3_track_frame(*tracker, *state, *model, frame);
             for (const auto & refine : refinements) {
@@ -301,7 +379,7 @@ int run_video(const cli_args & args) {
         video_params.fill_hole_area = integer(args, "--fill-hole-area", 16);
         auto tracker = sam3_create_visual_tracker(*model, video_params);
         if (!tracker) throw std::runtime_error("Failed to create visual tracker");
-        const auto first = sam3_decode_video_frame(video_path, start_frame);
+        const auto first = video_reader.frame(start_frame);
         if (first.data.empty() || !sam3_encode_image(*state, *model, first))
             throw std::runtime_error("Failed to encode initial frame");
         sam3_result initial;
@@ -318,7 +396,7 @@ int run_video(const cli_args & args) {
         write_frame(output, initial, output_dir, start_frame, true);
         first_frame = false;
         for (int frame_index = start_frame + 1; frame_index < end_frame; ++frame_index) {
-            const auto frame = sam3_decode_video_frame(video_path, frame_index);
+            const auto frame = video_reader.frame(frame_index);
             if (frame.data.empty()) throw std::runtime_error("Failed to decode frame " + std::to_string(frame_index));
             auto result = sam3_propagate_frame(*tracker, *state, *model, frame);
             for (const auto & refine : refinements) {
