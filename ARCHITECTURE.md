@@ -15,6 +15,32 @@ browser on laptop ── HTTP over trusted LAN ── Gradio on server ── ad
                  └── or SSH local-port tunnel (recommended)
 ```
 
+## Duration-independent video path
+
+Whole-video sessions remain useful for short interactive work. Long files and
+RTSP use a different bounded pipeline:
+
+```text
+file decoder ────────────────┐
+                             ├─ rolling CPU clip + overlap ─ isolated SAM 3.1 worker
+RTSP capture ─ queue(max=2) ─┘                                      │
+                                                                    ├─ masks/chunk manifest
+                                                                    ├─ annotated MP4 segment
+                                                                    ├─ frames/chunks JSONL
+                                                                    └─ overlap ID handoff on CPU
+```
+
+Only overlap frames remain in the decoder's CPU memory. Each SAM worker sees a
+finite clip, uses an explicit grounding batch and active-object ceiling, closes
+its session, and exits. CUDA process exit prevents per-session tensor
+references or allocator state from carrying into the next chunk. Total video
+duration therefore affects elapsed time and output storage, not peak VRAM.
+
+SAM IDs are session-local. A bounded CPU stitcher matches boxes across overlap
+frames, assigns global IDs, and expires old track records. RTSP capture runs in
+a producer thread with a two-chunk queue; stale pending chunks are dropped when
+inference falls behind rather than allowing queue memory and latency to grow.
+
 ## Why three adapters instead of one transformer doing everything
 
 The three models have different jobs and operational strengths:
@@ -72,6 +98,9 @@ SAM image and video use a shared manifest structure. Each frame contains detecti
   loop and exclusive detector cache, so finite tests remain internally bounded
   and do not prepare the full source video.
 - Official SAM adapters release Python references and empty the CUDA cache after a completed job.
+- Long-file and RTSP chunks additionally run in child processes, making process
+  exit a hard CUDA cleanup boundary. Their defaults are batch 1, 60 frames, 8
+  overlap frames, and 16 active objects.
 - Model, runtime, and output directories are local to this workspace and git-ignored.
 - The launcher supports optional `MODEL_LAB_USER` and `MODEL_LAB_PASSWORD` authentication.
 - `0.0.0.0` is only for a trusted LAN. An SSH local-port tunnel with the server bound to `127.0.0.1` is preferred.

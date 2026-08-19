@@ -19,6 +19,15 @@ def _split_records(value: str) -> list[str]:
     return [item.strip() for item in value.splitlines() if item.strip()]
 
 
+def _add_bounded_video_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--text", required=True, help="Object or concept to track")
+    parser.add_argument("--chunk-frames", type=int, default=60)
+    parser.add_argument("--overlap-frames", type=int, default=8)
+    parser.add_argument("--grounding-batch-size", type=int, default=1)
+    parser.add_argument("--max-active-objects", type=int, default=16)
+    parser.add_argument("--threshold", type=float, default=0.5)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="model-lab", description="YOLO, RF-DETR, and SAM 3 lab")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -90,6 +99,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Official SAM 3.1 vision batch (1=min VRAM, 4=balanced, 16=max throughput)",
     )
     video.add_argument("--cpu", action="store_true")
+
+    long_video = sub.add_parser(
+        "long-video", help="Process a long file with isolated, fixed-size SAM 3.1 sessions"
+    )
+    long_video.add_argument("--input", required=True, type=Path)
+    long_video.add_argument("--max-chunks", type=int, default=0)
+    _add_bounded_video_arguments(long_video)
+
+    rtsp = sub.add_parser(
+        "rtsp", help="Process an RTSP feed with a bounded capture queue and SAM sessions"
+    )
+    rtsp.add_argument("--url", required=True)
+    rtsp.add_argument("--maximum-minutes", type=float, default=10)
+    _add_bounded_video_arguments(rtsp)
 
     playground = sub.add_parser("playground", help="Launch the browser playground")
     playground.add_argument("--host", default=None)
@@ -186,6 +209,25 @@ def main(argv: list[str] | None = None) -> None:
         )
         rendered = render_video_manifest(args.input, manifest, args.output / "annotated.mp4")
         print(json.dumps({"manifest": str(manifest), "annotated": str(rendered), "result": payload}, indent=2))
+        return
+    if args.command in {"long-video", "rtsp"}:
+        from .playground.service import PlaygroundService
+
+        bounded = PlaygroundService(config).bounded
+        common = (
+            args.text,
+            args.chunk_frames,
+            args.overlap_frames,
+            args.grounding_batch_size,
+            args.max_active_objects,
+            args.threshold,
+        )
+        if args.command == "long-video":
+            updates = bounded.run_file(str(args.input), *common, args.max_chunks)
+        else:
+            updates = bounded.run_rtsp(args.url, *common, args.maximum_minutes)
+        for _, _, _, _, state in updates:
+            print(json.dumps(state), flush=True)
         return
     if args.command == "playground":
         try:

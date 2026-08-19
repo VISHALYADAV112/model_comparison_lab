@@ -93,6 +93,22 @@ def configure_video_predictor(predictor: Any, grounding_batch_size: int) -> Any:
     return predictor
 
 
+def close_video_session(predictor: Any, session_id: str) -> None:
+    """Close a session and break every known reference to its CUDA tensors."""
+    sessions = getattr(predictor, "_all_inference_states", {})
+    session = sessions.get(session_id) if isinstance(sessions, dict) else None
+    try:
+        predictor.handle_request({"type": "close_session", "session_id": session_id})
+    finally:
+        if isinstance(sessions, dict):
+            sessions.pop(session_id, None)
+        if isinstance(session, dict):
+            state = session.get("state")
+            if isinstance(state, dict):
+                state.clear()
+            session.clear()
+
+
 @contextmanager
 def _aligned_meta_tracking_bounds(predictor: Any, enabled: bool) -> Iterator[None]:
     """Align Meta's detector window with its inclusive propagation window.
@@ -243,6 +259,31 @@ class MetaSam3Adapter:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+
+    @staticmethod
+    def _reset_cuda_peak_memory() -> None:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+        except ImportError:
+            pass
+
+    @staticmethod
+    def _cuda_peak_memory() -> dict[str, float | None]:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                megabyte = 1024 * 1024
+                return {
+                    "cuda_peak_allocated_mb": round(torch.cuda.max_memory_allocated() / megabyte, 2),
+                    "cuda_peak_reserved_mb": round(torch.cuda.max_memory_reserved() / megabyte, 2),
+                }
+        except ImportError:
+            pass
+        return {"cuda_peak_allocated_mb": None, "cuda_peak_reserved_mb": None}
 
     @staticmethod
     def _image_inference_context() -> Any:
@@ -470,6 +511,7 @@ class MetaSam3Adapter:
         offload_video_to_cpu: bool = False,
         offload_state_to_cpu: bool = False,
         grounding_batch_size: int | None = None,
+        max_num_objects: int | None = None,
     ) -> tuple[Path, dict]:
         self._require_cuda()
         if not self.config.sam3_official_video_model.exists():
@@ -483,11 +525,19 @@ class MetaSam3Adapter:
         width, height, fps = self._video_info(video)
         settings = self.config.raw["sam3"]
         start = perf_counter()
+        self._reset_cuda_peak_memory()
+        effective_max_num_objects = int(
+            settings.get("max_num_objects", 64)
+            if max_num_objects is None
+            else max_num_objects
+        )
+        if not 1 <= effective_max_num_objects <= 64:
+            raise ValueError("SAM 3.1 maximum objects must be between 1 and 64")
         predictor = build_sam3_predictor(
             checkpoint_path=str(self.config.sam3_official_video_model),
             version="sam3.1",
             compile=bool(settings.get("compile", False)),
-            max_num_objects=int(settings.get("max_num_objects", 64)),
+            max_num_objects=effective_max_num_objects,
             multiplex_count=int(settings.get("multiplex_count", 16)),
             use_fa3=bool(settings.get("use_flash_attention_3", False)),
         )
@@ -497,6 +547,7 @@ class MetaSam3Adapter:
         configure_video_predictor(predictor, effective_grounding_batch_size)
         session_id: str | None = None
         frames: list[dict[str, Any]] = []
+        cuda_peak = self._cuda_peak_memory()
         try:
             response = start_video_session(
                 predictor,
@@ -585,7 +636,8 @@ class MetaSam3Adapter:
                 frames.append({"frame_index": frame_index, "detections": detections})
         finally:
             if session_id is not None:
-                predictor.handle_request({"type": "close_session", "session_id": session_id})
+                close_video_session(predictor, session_id)
+            cuda_peak = self._cuda_peak_memory()
             del predictor
             self._release_cuda()
         frames.sort(key=lambda item: item["frame_index"])
@@ -601,7 +653,9 @@ class MetaSam3Adapter:
             "fps": fps,
             "elapsed_seconds": perf_counter() - start,
             "grounding_batch_size": effective_grounding_batch_size,
+            "max_num_objects": effective_max_num_objects,
             "video_frames_offloaded_to_cpu": bool(offload_video_to_cpu),
+            **cuda_peak,
             "frames": frames,
         }
         manifest = output_dir / "manifest.json"

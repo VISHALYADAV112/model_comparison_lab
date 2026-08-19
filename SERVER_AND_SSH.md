@@ -118,6 +118,9 @@ CUDA out of memory:
 - Enable video/state CPU offload in the playground.
 - Start with fewer video frames.
 - Stop other GPU processes after identifying them with `nvidia-smi`.
+- For long recordings, use dashboard tab **Long video and RTSP surveillance**
+  instead of a whole-video session. It bounds every session and exits the CUDA
+  worker after each chunk.
 
 Q8 logs `using CPU backend` on the NVIDIA server:
 
@@ -156,7 +159,18 @@ Official batch 4 now runs out of memory on a short test:
 - Restart the dashboard after an OOM, check `nvidia-smi`, and retry 60 frames
   with **Official minimum VRAM (batch 1)** before increasing the range.
 - Whole-video runs may still require batch 1, fewer detected objects, an idle
-  GPU, or a future chunked-session implementation.
+  GPU. Use the bounded long-video path for the complete recording.
+
+RTSP cannot connect or repeatedly reconnects:
+
+- The Rocky Linux server must be able to route to the camera; the laptop's
+  browser connection is irrelevant to RTSP routing.
+- Confirm the URL with a short server-side FFmpeg or VLC test without posting
+  credentials in logs or screenshots.
+- Keep Gradio on `127.0.0.1` behind the SSH tunnel. An RTSP URL is a secret when
+  it contains a username, password, or access token.
+- The bounded runner uses finite OpenCV/FFmpeg open and read timeouts and the
+  reconnect count configured in `configs/models.toml`.
 
 Annotated video downloads but does not play in the dashboard:
 

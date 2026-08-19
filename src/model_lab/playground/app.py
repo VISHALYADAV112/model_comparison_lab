@@ -89,6 +89,7 @@ def _clear_prompts():
 
 def create_app(config: LabConfig) -> gr.Blocks:
     service = PlaygroundService(config)
+    bounded_defaults = config.raw.get("bounded_video", {})
     with gr.Blocks(title="Long-range vision model lab") as app:
         gr.HTML(
             """
@@ -492,7 +493,151 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     [annotated_video, video_manifest, video_archive, video_json],
                 )
 
-            with gr.Tab("5 · Expert: live video correction"):
+            with gr.Tab("5 · Long video and RTSP surveillance"):
+                gr.Markdown(
+                    "## Bounded-memory SAM 3.1\n"
+                    "Use this for very long recordings or an RTSP camera. The input is divided into finite, "
+                    "overlapping clips; each clip gets a fresh SAM session and is written to disk before the next "
+                    "one begins. This keeps video duration from increasing VRAM usage."
+                )
+                with gr.Row():
+                    with gr.Column(scale=3):  # noqa: SIM117 - Preserve Gradio layout hierarchy.
+                        with gr.Tabs():
+                            with gr.Tab("Long or very-long video file"):
+                                bounded_file = gr.Video(label="Long input video", format="mp4")
+                                bounded_file_target = gr.Textbox(
+                                    value="vehicle",
+                                    label="Object or concept to track",
+                                )
+                                bounded_max_chunks = gr.Number(
+                                    value=0,
+                                    precision=0,
+                                    minimum=0,
+                                    label="Maximum chunks (0 processes the complete file)",
+                                )
+                                bounded_file_run = gr.Button(
+                                    "Process long video safely", variant="primary"
+                                )
+                            with gr.Tab("RTSP surveillance feed"):
+                                rtsp_url = gr.Textbox(
+                                    type="password",
+                                    label="RTSP URL",
+                                    placeholder="rtsp://user:password@camera.example/stream",
+                                    info="Credentials are used for the connection but are not written to manifests.",
+                                )
+                                rtsp_target = gr.Textbox(
+                                    value="vehicle",
+                                    label="Object or concept to track",
+                                )
+                                rtsp_maximum_minutes = gr.Number(
+                                    value=float(bounded_defaults.get("rtsp_maximum_minutes", 10)),
+                                    minimum=0,
+                                    label="Maximum capture minutes (0 runs until Stop)",
+                                    info="Use a finite value for unattended tests. Zero requires the Stop button.",
+                                )
+                                with gr.Row():
+                                    rtsp_run = gr.Button("Start RTSP tracking", variant="primary")
+                                    bounded_stop = gr.Button("Stop safely", variant="stop")
+                    with gr.Column(scale=2, elem_classes="step-card"):
+                        gr.Markdown("### Fixed VRAM limits")
+                        bounded_chunk_frames = gr.Slider(
+                            minimum=30,
+                            maximum=300,
+                            value=int(bounded_defaults.get("chunk_frames", 60)),
+                            step=1,
+                            label="Frames per SAM session",
+                            info="Start at 60. Increase only after checking measured peak VRAM.",
+                        )
+                        bounded_overlap_frames = gr.Slider(
+                            minimum=0,
+                            maximum=30,
+                            value=int(bounded_defaults.get("overlap_frames", 8)),
+                            step=1,
+                            label="Overlap frames for identity handoff",
+                        )
+                        bounded_batch_size = gr.Slider(
+                            minimum=1,
+                            maximum=4,
+                            value=int(bounded_defaults.get("grounding_batch_size", 1)),
+                            step=1,
+                            label="SAM 3.1 grounding batch size",
+                            info="Batch 1 is the safest long-running profile on the L40S.",
+                        )
+                        bounded_max_objects = gr.Slider(
+                            minimum=1,
+                            maximum=64,
+                            value=int(bounded_defaults.get("max_active_objects", 16)),
+                            step=1,
+                            label="Maximum active objects per chunk",
+                        )
+                        bounded_threshold = gr.Slider(
+                            minimum=0.05,
+                            maximum=0.95,
+                            value=0.5,
+                            step=0.05,
+                            label="Mask confidence threshold",
+                        )
+                        gr.Markdown(
+                            "RTSP keeps at most two captured chunks waiting. If SAM is slower than the camera, "
+                            "old pending chunks are dropped instead of building an unlimited queue."
+                        )
+                bounded_summary = gr.Markdown(
+                    "Choose a long file or RTSP feed to begin.", elem_classes="result-card"
+                )
+                bounded_latest_video = gr.Video(label="Latest completed annotated segment")
+                with gr.Row():
+                    bounded_index = gr.File(label="Incremental run index")
+                    bounded_frames = gr.File(label="Frame results (JSONL)")
+                with gr.Accordion("Live bounded-memory telemetry", open=False):
+                    bounded_json = gr.JSON(label="Current run state")
+
+                bounded_file_run.click(
+                    service.bounded.run_file,
+                    [
+                        bounded_file,
+                        bounded_file_target,
+                        bounded_chunk_frames,
+                        bounded_overlap_frames,
+                        bounded_batch_size,
+                        bounded_max_objects,
+                        bounded_threshold,
+                        bounded_max_chunks,
+                    ],
+                    [
+                        bounded_summary,
+                        bounded_latest_video,
+                        bounded_index,
+                        bounded_frames,
+                        bounded_json,
+                    ],
+                )
+                rtsp_run.click(
+                    service.bounded.run_rtsp,
+                    [
+                        rtsp_url,
+                        rtsp_target,
+                        bounded_chunk_frames,
+                        bounded_overlap_frames,
+                        bounded_batch_size,
+                        bounded_max_objects,
+                        bounded_threshold,
+                        rtsp_maximum_minutes,
+                    ],
+                    [
+                        bounded_summary,
+                        bounded_latest_video,
+                        bounded_index,
+                        bounded_frames,
+                        bounded_json,
+                    ],
+                )
+                bounded_stop.click(
+                    service.bounded.stop,
+                    outputs=[bounded_summary, bounded_json],
+                    queue=False,
+                )
+
+            with gr.Tab("6 · Expert: live video correction"):
                 gr.Markdown(
                     "## Persistent SAM 3.1 Object Multiplex session\n"
                     "This is an expert workflow. Start a session, add a prompt, propagate, and then correct or "
@@ -582,7 +727,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     [live_output_video, live_manifest, live_archive, live_result],
                 )
 
-            with gr.Tab("6 · Models and system status"):
+            with gr.Tab("7 · Models and system status"):
                 gr.Markdown(
                     "## Installation status\n"
                     "A green **Ready** value means that checkpoint or runtime exists. Downloads are resumable; "

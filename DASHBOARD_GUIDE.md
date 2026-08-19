@@ -77,13 +77,38 @@ The grounding batch slider applies to official SAM 3.1 only: use `1` for the
 lowest peak VRAM, `4` for the balanced default, and `16` only on an otherwise
 free high-memory GPU.
 
-## Tab 5: live video correction
+## Tab 5: long video and RTSP surveillance
+
+Use this tab instead of whole-video mode for a very long recording or camera
+feed. Both paths process fixed overlapping chunks, save results incrementally,
+and run every chunk in an isolated CUDA worker. Worker exit is the hard VRAM
+cleanup boundary.
+
+Start with 60 frames, 8 overlap frames, grounding batch 1, and 16 active
+objects. For a long file, use one maximum chunk as a smoke test before changing
+the value to `0`. For RTSP, use a short maximum duration first; `0` runs until
+**Stop safely** is selected.
+
+The latest annotated segment replaces the previous preview after every chunk.
+`index.json` contains current totals, `frames.jsonl` is written one unique
+frame at a time, and `chunks.jsonl` inside the output directory contains peak
+CUDA measurements.
+
+The RTSP connection originates from the server. Its queue holds at most two
+pending chunks. When inference is slower than capture, old pending chunks are
+dropped deliberately and the dashboard reports the count. Camera credentials
+and query parameters are redacted from stored metadata.
+
+Read [LONG_VIDEO_AND_RTSP.md](LONG_VIDEO_AND_RTSP.md) for output layout,
+identity-handoff limits, reconnect behavior, and CLI examples.
+
+## Tab 6: live video correction
 
 This is an expert session workflow. Start a session, add a prompt, propagate,
 then refine or remove objects without loading the video again. Close the
 session when finished to release GPU memory.
 
-## Tab 6: models and system
+## Tab 7: models and system
 
 This confirms that every checkpoint and runtime exists. Do not download files
 again when every row says **Ready**.

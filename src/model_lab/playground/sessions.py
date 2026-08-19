@@ -14,6 +14,7 @@ from PIL import Image
 from ..adapters.meta_sam3 import (
     MetaSam3Adapter,
     _numpy,
+    close_video_session,
     configure_video_predictor,
     start_video_session,
     stream_video_responses,
@@ -160,7 +161,8 @@ class MetaVideoSessionController:
 
     def close(self, session_id: str) -> tuple[str, dict]:
         predictor, _ = self._session(session_id)
-        response = predictor.handle_request({"type": "close_session", "session_id": session_id})
+        close_video_session(predictor, session_id)
+        response = {"is_success": True}
         self.sessions.pop(session_id, None)
         if not self.sessions:
             self.predictor = None

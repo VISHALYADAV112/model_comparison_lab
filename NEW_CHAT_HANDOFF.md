@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 19 August 2026. Project release: 0.3.3.
+Last updated: 19 August 2026. Project release: 0.4.0.
 
 ## Copy this into the new chat
 
@@ -11,10 +11,11 @@ then inspect git status, the latest commit, and
 /Users/vishalyadav/Desktop/Practice/long_range_vision/error.txt. The active
 repository is model_comparison_lab on branch main and changes must be tested
 and pushed to GitHub so the Rocky Linux server can pull them. Current priority:
-verify release 0.3.3 on the server: Q8 video must get past frame decoding, and
-official SAM 3.1 batch 4 must complete the first-60-frame test without loading
-the entire video. Keep the architecture lean: YOLO, RF-DETR and SAM; no LLM or
-VLM runtime.
+verify release 0.4.0 on the server. Q8 video must get past frame decoding;
+official SAM 3.1 batch 4 must complete the first-60-frame test; then the new
+bounded long-video path must complete two chunks with stable peak VRAM. Test
+RTSP only with a user-authorized camera reachable from the server. Keep the
+architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
 ```
 
 ## Goal and architecture decision
@@ -137,6 +138,9 @@ needed.
 - Added Q8 image/video bridge, model download, diagnostics, and dashboard
   integration.
 - Corrected the documentation: Q8 is CPU-only on Linux at the pinned revision.
+- Added bounded long-file and RTSP processing with isolated per-chunk CUDA
+  workers, overlap ID handoff, incremental JSONL/MP4 outputs, RTSP reconnects,
+  UTC capture timestamps, and a fixed two-chunk capture queue.
 
 ## Release 0.3.3 fixes being verified
 
@@ -169,6 +173,24 @@ fails, restart the dashboard, confirm free VRAM with `nvidia-smi`, and test
 batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 `error.txt`; obtain it before claiming a remaining model or allocator bug.
 
+## Release 0.4.0 bounded video path
+
+Dashboard tab **Long video and RTSP surveillance** is the duration-independent
+path. It decodes a rolling CPU clip, retains only overlap frames, runs each
+finite SAM 3.1 chunk in a separate Python/CUDA process, writes results
+incrementally, and lets the worker process exit before the next chunk. Defaults
+are 60 frames, 8 overlap frames, batch 1, and 16 active objects.
+
+SAM IDs are local to each chunk. A bounded CPU registry assigns global IDs from
+box IoU on overlap frames and records the original ID as `chunk_instance_id`.
+This is not appearance re-identification; identities can change after long
+occlusion, camera cuts, or dropped RTSP chunks.
+
+RTSP credentials and query parameters are redacted from manifests. Capture and
+inference run concurrently with at most two waiting chunks. If inference falls
+behind, the oldest pending chunk is deleted and `dropped_rtsp_chunks` is
+incremented instead of allowing memory and latency to grow without bound.
+
 ## Immediate server verification checklist
 
 1. Pull, reinstall, and rebuild using the update commands above.
@@ -180,6 +202,12 @@ batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 5. If it OOMs, copy the complete CUDA exception and `nvidia-smi` output into
    `error.txt`. Retry batch 1 only after restarting the dashboard.
 6. Do not use whole-video mode until the 60- and 300-frame tests succeed.
+7. In the bounded tab, run a long file with **Maximum chunks = 2** using the
+   safe defaults. Confirm `chunks.jsonl` contains two stable CUDA peaks and
+   `frames.jsonl` has no duplicate global frame indices.
+8. For RTSP, use a short authorized test feed and finite duration. Confirm the
+   stored source contains no credentials, Stop works, and disconnect/reconnect
+   does not create an unbounded pending queue.
 
 ## Test commands on the Mac
 
@@ -196,14 +224,19 @@ uv run --no-project --isolated --python 3.12 \
 UV_CACHE_DIR=/tmp/model_lab_uv_cache \
 uv run --no-project --isolated --python 3.12 --with ruff \
   ruff check src/model_lab/__init__.py \
-  src/model_lab/adapters/meta_sam3.py src/model_lab/playground/app.py \
-  tests/test_meta_sam3_adapter.py tests/test_cpp_bridge_contract.py
+  src/model_lab/adapters/meta_sam3.py src/model_lab/bounded_video.py \
+  src/model_lab/bounded_worker.py src/model_lab/cli.py \
+  src/model_lab/playground/app.py src/model_lab/playground/service.py \
+  src/model_lab/playground/sessions.py \
+  tests/test_bounded_video.py tests/test_config.py \
+  tests/test_meta_sam3_adapter.py \
+  tests/test_cpp_bridge_contract.py
 ```
 
 Model-weight inference cannot be fully validated on the Mac. Previous local
 checks compiled the Q8 bridge against its exact pinned source, validated the
 H.264 test video's raw frame byte count, and tested rendering with H.264.
-The complete test suite passes. A repository-wide Ruff run still reports five
+The complete test suite passes (50 tests). A repository-wide Ruff run still reports five
 pre-existing import-order/unused-import findings in untouched files; changed
 files are clean.
 
@@ -217,6 +250,7 @@ files are clean.
 - `MODEL_MATRIX.md`: model roles and limitations.
 - `RESEARCH_AND_DECISIONS.md`: research rationale and physical limits.
 - `QUANTIZED_VIDEO_RESEARCH.md`: community quantization audit and next steps.
+- `LONG_VIDEO_AND_RTSP.md`: bounded-memory long-file and surveillance runbook.
 
 ## Working rules for the next chat
 

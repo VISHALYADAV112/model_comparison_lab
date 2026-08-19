@@ -13,10 +13,32 @@ from PIL import Image
 from model_lab.adapters.meta_sam3 import (
     MetaSam3Adapter,
     _numpy,
+    close_video_session,
     configure_video_predictor,
     start_video_session,
     stream_video_responses,
 )
+
+
+def test_close_video_session_clears_nested_tensor_references() -> None:
+    state = {"feature_cache": {"tensor": object()}}
+    session = {"state": state, "session_id": "session-1"}
+
+    class FakePredictor:
+        def __init__(self) -> None:
+            self._all_inference_states = {"session-1": session}
+
+        def handle_request(self, request):
+            assert request == {"type": "close_session", "session_id": "session-1"}
+            return {"is_success": True}
+
+    predictor = FakePredictor()
+
+    close_video_session(predictor, "session-1")
+
+    assert predictor._all_inference_states == {}
+    assert state == {}
+    assert session == {}
 
 
 def test_video_predictor_uses_requested_grounding_batch_size() -> None:

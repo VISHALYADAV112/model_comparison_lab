@@ -49,3 +49,16 @@ use_flash_attention_3 = false
 host = "127.0.0.1"
 port = 7860
 max_video_frames = 300
+
+[bounded_video]
+# Constant-memory defaults for long recordings and RTSP surveillance.
+chunk_frames = 60
+overlap_frames = 8
+grounding_batch_size = 1
+max_active_objects = 16
+rtsp_maximum_minutes = 10
+rtsp_queue_capacity = 2
+rtsp_reconnect_attempts = 5
+rtsp_reconnect_delay_seconds = 2
+# Kill a stuck isolated CUDA worker so an unattended stream cannot hold VRAM forever.
+worker_timeout_seconds = 1800

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,14 @@ from uuid import uuid4
 
 from ..adapters.meta_sam3 import MetaSam3Adapter
 from ..adapters.sam3_cpp import Sam3CppAdapter, parse_boxes, parse_points
+from ..bounded_video import (
+    BoundedSamRunner,
+    BoundedVideoSettings,
+    OpenCVChunkSource,
+    RtspChunkQueue,
+    redact_rtsp_url,
+    validate_rtsp_url,
+)
 from ..compare import compare_image
 from ..config import LabConfig
 from ..doctor import doctor_report
@@ -115,10 +125,230 @@ def quick_video_frame_limit(selection: str | float) -> int:
     return value
 
 
+def bounded_video_summary(payload: dict[str, Any]) -> str:
+    status = str(payload.get("status", "running"))
+    status_label = {
+        "running": "Processing",
+        "complete": "Completed",
+        "stopped": "Stopped safely",
+        "failed": "Failed",
+        "starting": "Starting",
+    }.get(status, status.title())
+    dropped = int(payload.get("dropped_rtsp_chunks") or 0)
+    dropped_text = (
+        f" RTSP capture dropped **{dropped} pending chunks** to prevent an unbounded queue."
+        if dropped
+        else ""
+    )
+    return (
+        f"### {status_label}\n"
+        f"Processed **{int(payload.get('processed_frames') or 0)} frames** in "
+        f"**{int(payload.get('processed_chunks') or 0)} bounded chunks**, assigned "
+        f"**{int(payload.get('unique_objects') or 0)} global object IDs**, and wrote "
+        f"**{int(payload.get('frame_level_masks') or 0)} masks**.{dropped_text}\n\n"
+        "Only one finite SAM 3.1 session is resident at a time. Results are committed after each chunk."
+    )
+
+
+class BoundedVideoController:
+    def __init__(self, config: LabConfig, job_factory, active_session_check=None) -> None:
+        self.config = config
+        self.job_factory = job_factory
+        self.active_session_check = active_session_check or (lambda: False)
+        self.runner = BoundedSamRunner(config)
+        self.stop_event = threading.Event()
+        self.lock = threading.Lock()
+
+    def _settings(
+        self,
+        chunk_frames: int,
+        overlap_frames: int,
+        grounding_batch_size: int,
+        max_active_objects: int,
+        threshold: float,
+    ) -> BoundedVideoSettings:
+        chunk_size = int(chunk_frames)
+        return BoundedVideoSettings(
+            chunk_frames=chunk_size,
+            overlap_frames=int(overlap_frames),
+            grounding_batch_size=int(grounding_batch_size),
+            max_active_objects=int(max_active_objects),
+            threshold=float(threshold),
+            identity_ttl_frames=max(60, chunk_size),
+            worker_timeout_seconds=float(
+                self.config.raw.get("bounded_video", {}).get(
+                    "worker_timeout_seconds", 1800
+                )
+            ),
+        ).validate()
+
+    @staticmethod
+    def _outputs(output: Path, payload: dict[str, Any]) -> tuple[str, str | None, str, str | None, dict]:
+        frames = output / "frames.jsonl"
+        return (
+            bounded_video_summary(payload),
+            payload.get("latest_segment"),
+            str(output / "index.json"),
+            str(frames) if frames.exists() else None,
+            payload,
+        )
+
+    def stop(self) -> tuple[str, dict[str, Any]]:
+        self.stop_event.set()
+        payload = {
+            "status": "stopping",
+            "message": "Stop requested. The active finite SAM chunk will finish and release its session.",
+        }
+        return "### Stop requested\nThe current bounded chunk will finish, then capture will stop.", payload
+
+    def _run(
+        self,
+        chunks,
+        output: Path,
+        *,
+        source_kind: str,
+        source_label: str,
+        target: str,
+        settings: BoundedVideoSettings,
+        max_chunks: int = 0,
+        dropped_chunks=None,
+    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+        if self.active_session_check():
+            raise RuntimeError(
+                "Close the persistent SAM 3.1 session in tab 6 before starting bounded processing"
+            )
+        if not self.lock.acquire(blocking=False):
+            raise RuntimeError("Another long-video or RTSP job is already using the GPU")
+        self.stop_event.clear()
+        try:
+            starting = {
+                "status": "starting",
+                "processed_frames": 0,
+                "processed_chunks": 0,
+                "unique_objects": 0,
+                "frame_level_masks": 0,
+                "dropped_rtsp_chunks": 0,
+            }
+            yield (
+                "### Starting bounded SAM 3.1 processing\nPreparing the first finite video chunk.",
+                None,
+                None,
+                None,
+                starting,
+            )
+            for payload in self.runner.run(
+                chunks,
+                output,
+                source_kind=source_kind,
+                source_label=source_label,
+                target=target,
+                settings=settings,
+                stop_event=self.stop_event,
+                max_chunks=max_chunks,
+                dropped_chunks=dropped_chunks,
+            ):
+                yield self._outputs(output, payload)
+        finally:
+            self.stop_event.set()
+            self.lock.release()
+
+    def run_file(
+        self,
+        video: str,
+        target: str,
+        chunk_frames: int,
+        overlap_frames: int,
+        grounding_batch_size: int,
+        max_active_objects: int,
+        threshold: float,
+        max_chunks: int,
+    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+        video_path = _path(video)
+        if not video_path.is_file():
+            raise FileNotFoundError(video_path)
+        if int(max_chunks) < 0:
+            raise ValueError("Maximum chunks cannot be negative")
+        settings = self._settings(
+            chunk_frames,
+            overlap_frames,
+            grounding_batch_size,
+            max_active_objects,
+            threshold,
+        )
+        output = self.job_factory("long_video")
+        chunks = OpenCVChunkSource(
+            str(video_path), output / "inputs", settings, self.stop_event
+        )
+        yield from self._run(
+            chunks,
+            output,
+            source_kind="long_video",
+            source_label=video_path.name,
+            target=target,
+            settings=settings,
+            max_chunks=int(max_chunks),
+        )
+
+    def run_rtsp(
+        self,
+        rtsp_url: str,
+        target: str,
+        chunk_frames: int,
+        overlap_frames: int,
+        grounding_batch_size: int,
+        max_active_objects: int,
+        threshold: float,
+        maximum_minutes: float,
+    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+        source = validate_rtsp_url(rtsp_url)
+        if float(maximum_minutes) < 0:
+            raise ValueError("Maximum RTSP duration cannot be negative")
+        settings = self._settings(
+            chunk_frames,
+            overlap_frames,
+            grounding_batch_size,
+            max_active_objects,
+            threshold,
+        )
+        output = self.job_factory("rtsp")
+        capture = OpenCVChunkSource(
+            source,
+            output / "inputs",
+            settings,
+            self.stop_event,
+            rtsp=True,
+            maximum_minutes=float(maximum_minutes),
+            reconnect_attempts=int(
+                self.config.raw.get("bounded_video", {}).get("rtsp_reconnect_attempts", 5)
+            ),
+            reconnect_delay_seconds=float(
+                self.config.raw.get("bounded_video", {}).get("rtsp_reconnect_delay_seconds", 2)
+            ),
+        )
+        queued = RtspChunkQueue(
+            capture,
+            capacity=int(
+                self.config.raw.get("bounded_video", {}).get("rtsp_queue_capacity", 2)
+            ),
+        )
+        yield from self._run(
+            queued,
+            output,
+            source_kind="rtsp",
+            source_label=redact_rtsp_url(source),
+            target=target,
+            settings=settings,
+            dropped_chunks=lambda: queued.dropped_chunks,
+        )
+
+
 class PlaygroundService:
     def __init__(self, config: LabConfig) -> None:
         self.config = config
         self.sessions = MetaVideoSessionController(config)
+        self.bounded = BoundedVideoController(
+            config, self._job, active_session_check=lambda: bool(self.sessions.sessions)
+        )
 
     def _job(self, kind: str) -> Path:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
