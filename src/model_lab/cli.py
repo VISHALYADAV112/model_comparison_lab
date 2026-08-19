@@ -107,14 +107,14 @@ def build_parser() -> argparse.ArgumentParser:
     video.add_argument("--cpu", action="store_true")
 
     long_video = sub.add_parser(
-        "long-video", help="Process a long file with isolated, fixed-size SAM 3.1 sessions"
+        "long-video", help="Process a long file with continuous rolling-state SAM 3.1"
     )
     long_video.add_argument("--input", required=True, type=Path)
     long_video.add_argument("--max-chunks", type=int, default=0)
     _add_bounded_video_arguments(long_video)
 
     rtsp = sub.add_parser(
-        "rtsp", help="Process an RTSP feed with a bounded capture queue and SAM sessions"
+        "rtsp", help="Process an RTSP feed with rolling SAM state and a bounded queue"
     )
     rtsp.add_argument("--url", required=True)
     rtsp.add_argument("--maximum-minutes", type=float, default=10)
