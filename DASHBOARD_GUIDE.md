@@ -34,8 +34,8 @@ deliberately want to inspect every known class.
    - **Quantized Q8** uses base SAM 3's memory-bank tracker with low weight
      memory, but the pinned Linux runtime is CPU-only and can be very slow.
    - **Official maximum speed** requires a mostly free GPU.
-4. Choose **Whole uploaded video** for a complete result, or first run a
-   60/300-frame test to check the prompt and memory profile.
+4. The safe default is **Quick test — first 60 frames**. Use it to check the
+   prompt and memory profile before selecting 300 frames or the whole video.
 5. Select **Track through video**.
 
 The output is a browser-compatible H.264 annotated MP4. The ZIP contains every
@@ -47,6 +47,12 @@ propagation range.
 The quantized option is not SAM 3.1 and cannot be used to claim Object
 Multiplex quality or speed. On the Linux server, use a short Q8 test first;
 use an official minimum-VRAM profile when you need NVIDIA GPU acceleration.
+
+Version 0.3.3 keeps finite official runs bounded inside Meta's detector as
+well as at the dashboard output. Earlier version 0.2.5 avoided a final-frame
+bug by leaving Meta's internal range unbounded; that could make a 60-frame
+request prepare the whole uploaded video. Whole-video tracking can still
+exceed VRAM because temporal state grows with video length and object count.
 
 ## Tab 3: advanced SAM image prompts
 
@@ -128,9 +134,10 @@ It also accepts empty optional Gradio fields as empty lists instead of raising
 Meta's pinned SAM 3.1 source uses an inclusive propagation endpoint but an
 exclusive batched-grounding endpoint when a finite internal frame window is
 sent. The last requested frame can therefore contain an empty feature tensor.
-Version 0.2.5 leaves Meta's internal window unbounded and enforces the chosen
-frame count on streamed results instead. This preserves an exact dashboard and
-CLI output limit and closes the stream as soon as that limit is reached.
+Version 0.2.5 temporarily left Meta's internal window unbounded, which avoided
+the empty final frame but could prepare the whole video and increase memory.
+Version 0.3.3 instead aligns the propagation and detector bounds, preserving an
+exact, internally bounded dashboard and CLI output limit.
 
 ## Reading the comparison correctly
 

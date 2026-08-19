@@ -142,10 +142,21 @@ Q8 reports `Failed to inspect video`:
 
 Q8 reports `Failed to decode frame 0`:
 
-- Version 0.3.2 replaces the upstream per-frame FFmpeg calls with one persistent
-  sequential decoder and prints FFmpeg errors directly in the server terminal.
+- Version 0.3.3 replaces the upstream per-frame FFmpeg calls with one persistent
+  sequential decoder, avoids the unsupported legacy `-vsync` option, and
+  prints FFmpeg errors directly in the server terminal.
 - Pull the update, reinstall the editable package, and rebuild the bridge; a
   Python reinstall alone does not recompile the C++ executable.
+
+Official batch 4 now runs out of memory on a short test:
+
+- Confirm **Quick test — first 60 frames** is selected. Version 0.3.3 restores
+  a real internal Meta frame bound; earlier code could prepare the whole video
+  even when the dashboard stopped after 60 returned frames.
+- Restart the dashboard after an OOM, check `nvidia-smi`, and retry 60 frames
+  with **Official minimum VRAM (batch 1)** before increasing the range.
+- Whole-video runs may still require batch 1, fewer detected objects, an idle
+  GPU, or a future chunked-session implementation.
 
 Annotated video downloads but does not play in the dashboard:
 

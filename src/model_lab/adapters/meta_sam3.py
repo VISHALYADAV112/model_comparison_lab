@@ -5,6 +5,8 @@ import importlib.util
 import inspect
 import json
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from time import perf_counter, time
 from typing import Any
@@ -91,41 +93,88 @@ def configure_video_predictor(predictor: Any, grounding_batch_size: int) -> Any:
     return predictor
 
 
+@contextmanager
+def _aligned_meta_tracking_bounds(predictor: Any, enabled: bool) -> Iterator[None]:
+    """Align Meta's detector window with its inclusive propagation window.
+
+    The pinned SAM 3.1 propagation loop treats its finite limit as a distance
+    from the start frame, while both detector paths treat it as an exclusive
+    frame count. For a requested N-frame output, the caller sends N-1 to the
+    propagation loop and these wrappers send N to the detector. This keeps
+    finite runs bounded without leaving the final propagation frame uncached.
+    """
+    if not enabled:
+        yield
+        return
+
+    model = getattr(predictor, "model", None)
+    detector = getattr(model, "detector", None)
+    method_names = (
+        "forward_video_grounding_batched_multigpu",
+        "forward_video_grounding_multigpu",
+    )
+    originals: dict[str, Any] = {}
+    try:
+        if detector is None:
+            raise RuntimeError("The installed SAM 3.1 model does not expose its detector")
+        for name in method_names:
+            original = getattr(detector, name, None)
+            if original is None:
+                continue
+
+            @wraps(original)
+            def aligned(*args: Any, __original: Any = original, **kwargs: Any) -> Any:
+                frame_limit = kwargs.get("max_frame_num_to_track")
+                if frame_limit is not None:
+                    kwargs["max_frame_num_to_track"] = int(frame_limit) + 1
+                return __original(*args, **kwargs)
+
+            originals[name] = original
+            setattr(detector, name, aligned)
+
+        if not originals:
+            raise RuntimeError("The installed SAM 3.1 detector does not expose finite-window controls")
+        yield
+    finally:
+        for name, original in originals.items():
+            setattr(detector, name, original)
+
+
 def stream_video_responses(
     predictor: Any,
     request: dict[str, Any],
     *,
     max_frames: int = 0,
 ) -> Iterator[dict[str, Any]]:
-    """Stream at most ``max_frames`` unique frames around Meta's finite-window bug.
+    """Stream exactly the bounded Meta window without its final-frame bug.
 
     The pinned SAM 3.1 implementation uses an inclusive end frame in its
     propagation loop but an exclusive end frame in its batched grounding cache.
-    Sending a finite ``max_frame_num_to_track`` therefore produces an empty
-    feature tensor on the final frame. Let Meta stream without that broken
-    internal bound and enforce the user-facing frame count at the API boundary.
+    A small runtime wrapper aligns those two interpretations while retaining a
+    real internal limit, so a short run does not prepare the entire video.
     """
     limit = int(max_frames)
     if limit < 0:
         raise ValueError("Maximum frames must be 0 (all frames) or a positive number")
 
     stream_request = dict(request)
-    stream_request["max_frame_num_to_track"] = None
-    stream = predictor.handle_stream_request(stream_request)
-    seen: set[int] = set()
-    try:
-        for response in stream:
-            frame_index = int(response["frame_index"])
-            is_new_frame = frame_index not in seen
-            if is_new_frame:
-                seen.add(frame_index)
-            yield response
-            if limit and is_new_frame and len(seen) >= limit:
-                return
-    finally:
-        close = getattr(stream, "close", None)
-        if close is not None:
-            close()
+    stream_request["max_frame_num_to_track"] = limit - 1 if limit else None
+    with _aligned_meta_tracking_bounds(predictor, enabled=bool(limit)):
+        stream = predictor.handle_stream_request(stream_request)
+        seen: set[int] = set()
+        try:
+            for response in stream:
+                frame_index = int(response["frame_index"])
+                is_new_frame = frame_index not in seen
+                if is_new_frame:
+                    seen.add(frame_index)
+                yield response
+                if limit and is_new_frame and len(seen) >= limit:
+                    return
+        finally:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
 
 
 def _xyxy_to_normalized_cxcywh(box: tuple[float, float, float, float], width: int, height: int) -> list[float]:

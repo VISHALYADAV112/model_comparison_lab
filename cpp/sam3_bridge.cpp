@@ -48,7 +48,7 @@ public:
         if (width_ <= 0 || height_ <= 0) throw std::runtime_error("Invalid video dimensions");
         std::ostringstream command;
         command << "ffmpeg -nostdin -loglevel error -noautorotate -i " << shell_quote(path)
-                << " -map 0:v:0 -an -sn -dn -vsync 0 -c:v rawvideo -threads:v 1"
+                << " -map 0:v:0 -an -sn -dn -c:v rawvideo -threads:v 1"
                 << " -f rawvideo -pix_fmt rgb24 pipe:1";
         pipe_ = MODEL_LAB_POPEN(command.str().c_str(), MODEL_LAB_POPEN_MODE);
         if (!pipe_) throw std::runtime_error("Failed to start the FFmpeg frame decoder");

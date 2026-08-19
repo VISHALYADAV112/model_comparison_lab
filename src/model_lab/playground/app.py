@@ -233,15 +233,15 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         gr.Markdown("### Step 3 — Choose how much video to process")
                         quick_frame_range = gr.Radio(
                             choices=[
-                                ("Whole uploaded video", "all"),
                                 ("Quick test — first 60 frames", "first_60"),
                                 ("Longer test — first 300 frames", "first_300"),
+                                ("Whole uploaded video — highest memory risk", "all"),
                             ],
-                            value="all",
+                            value="first_60",
                             label="Output length",
                             info=(
-                                "60 frames is only 2 seconds for a 30 FPS video. Whole-video runs take longer; "
-                                "use minimum VRAM or Q8 on a shared GPU."
+                                "Start with 60 frames. Whole-video runs keep much more tracking state; use the "
+                                "minimum-VRAM profile and a free GPU, and remember Q8 is CPU-only on Linux."
                             ),
                         )
                         with gr.Accordion("Optional quality setting", open=False):

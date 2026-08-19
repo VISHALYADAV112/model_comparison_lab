@@ -139,9 +139,9 @@ Official SAM 3.1 text-prompted video tracking:
 ```
 
 `--max-frames` is the maximum number of unique output frames. Use `0` to
-process the full propagation range. The adapter applies this limit outside
-Meta's finite-window implementation to avoid its final-frame cache boundary
-bug.
+process the full propagation range. Version 0.3.3 aligns Meta's inclusive
+tracking range with its exclusive detector-cache range, preserving an exact
+output limit without preparing the entire source video.
 
 Official SAM 3.1 defaults to grounding batch size `4`. Override it with
 `--grounding-batch-size 1` for minimum VRAM or `16` for maximum throughput on

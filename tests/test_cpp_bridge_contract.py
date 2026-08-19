@@ -6,6 +6,7 @@ def test_q8_video_bridge_uses_one_sequential_ffmpeg_reader() -> None:
 
     assert "class sequential_video_reader" in source
     assert "-f rawvideo -pix_fmt rgb24 pipe:1" in source
+    assert "-vsync" not in source
     assert "sam3_decode_video_frame" not in source
 
 

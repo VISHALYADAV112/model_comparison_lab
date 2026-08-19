@@ -75,13 +75,26 @@ def test_multiplex_session_rejects_requested_unsupported_state_offload() -> None
         start_video_session(predictor, "/tmp/video.mp4", offload_state_to_cpu=True)
 
 
-def test_video_stream_avoids_meta_finite_bound_and_enforces_exact_limit() -> None:
+def test_video_stream_aligns_meta_finite_bound_and_enforces_exact_limit() -> None:
     requests = []
+    detector_limits = []
     stream_closed = False
 
+    class FakeDetector:
+        def forward_video_grounding_batched_multigpu(self, **kwargs):
+            detector_limits.append(kwargs["max_frame_num_to_track"])
+
+        def forward_video_grounding_multigpu(self, **kwargs):
+            detector_limits.append(kwargs["max_frame_num_to_track"])
+
     class FakePredictor:
+        model = SimpleNamespace(detector=FakeDetector())
+
         def handle_stream_request(self, request):
             requests.append(request)
+            self.model.detector.forward_video_grounding_batched_multigpu(
+                max_frame_num_to_track=request["max_frame_num_to_track"]
+            )
 
             def responses():
                 nonlocal stream_closed
@@ -101,7 +114,8 @@ def test_video_stream_avoids_meta_finite_bound_and_enforces_exact_limit() -> Non
     responses = list(stream_video_responses(FakePredictor(), request, max_frames=3))
 
     assert [response["frame_index"] for response in responses] == [0, 1, 2]
-    assert requests[0]["max_frame_num_to_track"] is None
+    assert requests[0]["max_frame_num_to_track"] == 2
+    assert detector_limits == [3]
     assert request["max_frame_num_to_track"] == 3
     assert stream_closed is True
 

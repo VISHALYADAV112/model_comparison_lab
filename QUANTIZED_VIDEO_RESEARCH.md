@@ -42,9 +42,10 @@ The much smaller visual-only Q8/Q4 checkpoints remove the text encoder. They
 can track a point/box-selected object, but cannot independently discover all
 instances of an arbitrary text concept.
 
-The lab's version 0.3.2 bridge uses one persistent FFmpeg stream for sequential
-video decoding. That fixes the upstream helper's process-per-frame decode
-failure and removes repeated decoder startup overhead. Model inference remains
+The lab's version 0.3.3 bridge uses one persistent FFmpeg stream for sequential
+video decoding and avoids the legacy `-vsync` option rejected by the server's
+FFmpeg build. That fixes the upstream helper's process-per-frame decode failure
+and removes repeated decoder startup overhead. Model inference remains
 CPU-bound on Linux, so a full 26-second clip can still be impractically slow.
 
 ## Memory and speed controls for official SAM 3.1

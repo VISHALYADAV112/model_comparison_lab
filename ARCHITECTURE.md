@@ -68,6 +68,9 @@ SAM image and video use a shared manifest structure. Each frame contains detecti
 
 - The UI queue has concurrency `1` by default because simultaneously loading large model stacks can exhaust VRAM.
 - Official video defaults to CPU-decoded-frame storage and a configurable grounding batch of `4`; `1` minimizes peak VRAM and `16` maximizes throughput.
+- A positive official frame limit is aligned across Meta's inclusive tracking
+  loop and exclusive detector cache, so finite tests remain internally bounded
+  and do not prepare the full source video.
 - Official SAM adapters release Python references and empty the CUDA cache after a completed job.
 - Model, runtime, and output directories are local to this workspace and git-ignored.
 - The launcher supports optional `MODEL_LAB_USER` and `MODEL_LAB_PASSWORD` authentication.
