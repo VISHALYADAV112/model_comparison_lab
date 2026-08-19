@@ -198,10 +198,13 @@ class BoundedVideoController:
         ).validate()
 
     @staticmethod
-    def _outputs(output: Path, payload: dict[str, Any]) -> tuple[str, str | None, str, str | None, dict]:
+    def _outputs(
+        output: Path, payload: dict[str, Any]
+    ) -> tuple[str, str | None, str | None, str, str | None, dict]:
         frames = output / "frames.jsonl"
         return (
             bounded_video_summary(payload),
+            payload.get("live_preview"),
             payload.get("latest_segment"),
             str(output / "index.json"),
             str(frames) if frames.exists() else None,
@@ -233,6 +236,9 @@ class BoundedVideoController:
             frame_buffer_frames=int(defaults.get("frame_buffer_frames", 96)),
             rtsp_queue_frames=int(defaults.get("rtsp_frame_queue_capacity", 64)),
             progress_every_frames=int(defaults.get("progress_every_frames", 25)),
+            preview_interval_seconds=float(
+                defaults.get("preview_interval_seconds", 1.0)
+            ),
         ).validate()
 
     def _run(
@@ -246,7 +252,7 @@ class BoundedVideoController:
         settings: BoundedVideoSettings,
         max_chunks: int = 0,
         dropped_chunks=None,
-    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+    ) -> Iterator[tuple[str, str | None, str | None, str, str | None, dict]]:
         if self.active_session_check():
             raise RuntimeError(
                 "Close the persistent SAM 3.1 session in tab 6 before starting bounded processing"
@@ -265,6 +271,7 @@ class BoundedVideoController:
             }
             yield (
                 "### Starting bounded SAM 3.1 processing\nPreparing the first finite video chunk.",
+                None,
                 None,
                 None,
                 None,
@@ -297,7 +304,7 @@ class BoundedVideoController:
         target: str,
         settings: ContinuousVideoSettings,
         maximum_windows: int = 0,
-    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+    ) -> Iterator[tuple[str, str | None, str | None, str, str | None, dict]]:
         if self.active_session_check():
             loader.close()
             raise RuntimeError(
@@ -320,6 +327,7 @@ class BoundedVideoController:
             }
             yield (
                 "### Starting continuous SAM 3.1 processing\nLoading one model and opening one native tracking session.",
+                None,
                 None,
                 None,
                 None,
@@ -353,7 +361,7 @@ class BoundedVideoController:
         threshold: float,
         max_chunks: int,
         engine: str = "continuous",
-    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+    ) -> Iterator[tuple[str, str | None, str | None, str, str | None, dict]]:
         video_path = _path(video)
         if not video_path.is_file():
             raise FileNotFoundError(video_path)
@@ -424,7 +432,7 @@ class BoundedVideoController:
         threshold: float,
         maximum_minutes: float,
         engine: str = "continuous",
-    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+    ) -> Iterator[tuple[str, str | None, str | None, str, str | None, dict]]:
         source = validate_rtsp_url(rtsp_url)
         if float(maximum_minutes) < 0:
             raise ValueError("Maximum RTSP duration cannot be negative")

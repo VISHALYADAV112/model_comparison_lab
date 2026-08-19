@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 19 August 2026. Project release: 0.5.0.
+Last updated: 19 August 2026. Project release: 0.5.1.
 
 ## Copy this into the new chat
 
@@ -11,7 +11,7 @@ then inspect git status, the latest commit, and
 /Users/vishalyadav/Desktop/Practice/long_range_vision/error.txt. The active
 repository is model_comparison_lab on branch main and changes must be tested
 and pushed to GitHub so the Rocky Linux server can pull them. Current priority:
-verify release 0.5.0's continuous native SAM 3.1 engine on the server. First
+verify release 0.5.1's continuous native SAM 3.1 engine on the server. First
 run one 60-frame window, then 300+ frames while checking that peak VRAM and
 rolling-state counts plateau. Compare native IDs/masks against ordinary
 whole-video output. Test RTSP only with a user-authorized camera reachable from
@@ -178,7 +178,7 @@ fails, restart the dashboard, confirm free VRAM with `nvidia-smi`, and test
 batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 `error.txt`; obtain it before claiming a remaining model or allocator bug.
 
-## Release 0.5.0 continuous native SAM 3.1 path
+## Release 0.5.1 continuous native SAM 3.1 path
 
 Dashboard tab **Long video and RTSP surveillance** defaults to **Continuous
 native SAM 3.1**. It keeps one predictor and tracking state for the complete
@@ -193,6 +193,14 @@ conditioning frames per object, at most 96 decoded pending originals, and a
 bounded 64-frame RTSP capture queue. Masks,
 JSONL, track crops, and video frames are written incrementally. File outputs
 are one final H.264 MP4 with source audio; RTSP outputs are video-only.
+`live_preview.jpg` is atomically replaced as results arrive and Gradio refreshes
+it about once per second. The first visible result follows Meta's native
+15-frame hot-start confirmation delay.
+
+Release 0.5.1 also fixes the server traceback `Inplace update to inference
+tensor outside InferenceMode` by performing manual rolling-session prompt and
+language-cache initialization under `torch.inference_mode()`, matching Meta's
+decorated prompt path.
 
 `track_identities.sqlite3` stores first/last frame, best confidence, and best
 crop for each SAM ID, with nullable verified-identity/embedding fields. It
@@ -271,7 +279,8 @@ uv run --no-project --isolated --python 3.12 --with ruff \
 Model-weight inference cannot be fully validated on the Mac. Previous local
 checks compiled the Q8 bridge against its exact pinned source, validated the
 H.264 test video's raw frame byte count, and tested rendering with H.264.
-The complete test suite passes (59 tests). A repository-wide Ruff run still reports four
+The local suite reports 60 passed and one Torch-specific regression skipped because
+the isolated macOS runner has no Torch. A repository-wide Ruff run still reports four
 pre-existing import-order/unused-import findings in untouched files; changed
 files are clean.
 

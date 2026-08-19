@@ -177,7 +177,8 @@ For a server-reachable RTSP camera:
 
 Both commands load SAM 3.1 once, preserve the same tracker state and native
 object IDs, decode frames lazily, prune only state outside SAM's temporal
-attention horizon, write JSONL/masks incrementally, and produce one final MP4.
+attention horizon, stream an annotated dashboard preview, write JSONL/masks
+incrementally, and produce one final MP4.
 Use `--engine chunked` only as the process-isolated reset/stitch fallback. See
 [LONG_VIDEO_AND_RTSP.md](LONG_VIDEO_AND_RTSP.md) before an unattended run.
 

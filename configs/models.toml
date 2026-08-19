@@ -68,3 +68,5 @@ state_history_frames = 32
 frame_buffer_frames = 96
 rtsp_frame_queue_capacity = 64
 progress_every_frames = 25
+# Throttle Gradio updates while still showing detections close to real time.
+preview_interval_seconds = 1.0

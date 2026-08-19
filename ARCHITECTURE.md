@@ -27,6 +27,7 @@ RTSP capture ─ frame queue ────┘                              │
                                                               ├─ rolling native memory
                                                               ├─ one native SAM ID space
                                                               ├─ masks + frames JSONL
+                                                              ├─ atomic live JPEG preview
                                                               ├─ one annotated MP4
                                                               └─ SQLite track/crop catalogue
 ```

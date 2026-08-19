@@ -90,10 +90,13 @@ objects. For a long file, use one maximum window as a smoke test before
 changing the value to `0`. For RTSP, use a short maximum duration first; `0`
 runs until **Stop safely** is selected.
 
-The completed result is one annotated MP4. `index.json` contains current totals
-and CUDA measurements, while `frames.jsonl` and masks are committed one frame
-at a time. `track_identities.sqlite3` stores the best crop and first/last frame
-for each SAM track so it can be reviewed or linked to a future ReID system.
+The **Live annotated detection preview** refreshes while SAM yields results;
+the first preview follows SAM 3.1's native 15-frame hot-start confirmation
+delay. The completed result is one annotated MP4. `index.json` contains current
+totals and CUDA measurements, while `frames.jsonl` and masks are committed one
+frame at a time. `track_identities.sqlite3` stores the best crop and first/last
+frame for each SAM track so it can be reviewed or linked to a future ReID
+system.
 
 The RTSP connection originates from the server. Its waiting-frame queue is
 bounded. When inference is slower than capture, old waiting frames are dropped

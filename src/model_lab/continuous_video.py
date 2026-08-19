@@ -46,6 +46,7 @@ class ContinuousVideoSettings:
     frame_buffer_frames: int = 96
     rtsp_queue_frames: int = 64
     progress_every_frames: int = 25
+    preview_interval_seconds: float = 1.0
 
     def validate(self) -> ContinuousVideoSettings:
         if self.window_frames < 1:
@@ -64,6 +65,10 @@ class ContinuousVideoSettings:
             )
         if self.rtsp_queue_frames < 1:
             raise ValueError("RTSP frame queue must be positive")
+        if not 0.1 <= self.preview_interval_seconds <= 10:
+            raise ValueError(
+                "Dashboard preview interval must be between 0.1 and 10 seconds"
+            )
         return self
 
 
@@ -766,6 +771,7 @@ class ContinuousResultWriter:
         self.masks_dir = output_dir / "masks"
         self.masks_dir.mkdir(parents=True, exist_ok=True)
         self.frames_path = output_dir / "frames.jsonl"
+        self.live_preview = output_dir / "live_preview.jpg"
         self.raw_video = output_dir / "annotated.opencv.mp4"
         self.final_video = output_dir / "annotated.mp4"
         self.video_writer = cv2.VideoWriter(
@@ -857,6 +863,12 @@ class ContinuousResultWriter:
         self._append_jsonl(self.frames_path, record)
         self.archive.update(frame_index, detections, packet.bgr)
         self.video_writer.write(frame)
+        encoded, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+        if not encoded:
+            raise RuntimeError("OpenCV could not encode the live annotated preview")
+        temporary_preview = self.live_preview.with_suffix(".jpg.tmp")
+        temporary_preview.write_bytes(jpeg.tobytes())
+        temporary_preview.replace(self.live_preview)
         return len(detections)
 
     def close(self) -> Path:
@@ -920,38 +932,41 @@ class ContinuousSamRunner:
         loader: RollingFrameLoader,
         target: str,
     ) -> dict[str, Any]:
+        import torch
+
         model = predictor.model
-        inference_state = model.init_state(
-            resource_path=[loader.first_pil_image()],
-            offload_video_to_cpu=True,
-            async_loading_frames=False,
-        )
-        inference_state["num_frames"] = len(loader)
-        inference_state["is_image_only"] = False
-        inference_state["input_batch"].img_batch.tensors = loader
-        inference_state["input_batch"].find_text_batch[0] = target
-        for find_input in inference_state["input_batch"].find_inputs:
-            find_input.text_ids[...] = model.TEXT_ID_FOR_TEXT
-        inference_state["text_prompt"] = target
-        if not hasattr(model, "_init_backbone_out"):
-            raise RuntimeError(
-                "The installed SAM 3.1 runtime lacks the expected language-cache API. "
-                "Re-run scripts/install_meta_sam3.sh to install the pinned commit."
+        with torch.inference_mode():
+            inference_state = model.init_state(
+                resource_path=[loader.first_pil_image()],
+                offload_video_to_cpu=True,
+                async_loading_frames=False,
             )
-        # Calling add_prompt would loop over the declared (potentially endless)
-        # stream length. Initialize the same text-only backbone cache directly;
-        # image features remain lazy and are supplied by RollingFrameLoader.
-        inference_state["backbone_out"] = model._init_backbone_out(inference_state)
-        self._sparse_state(inference_state)
-        inference_state["generator_state"] = {
-            "hotstart_buffer": [],
-            "hotstart_removed_obj_ids": set(),
-            "unconfirmed_obj_ids_per_frame": {},
-            "postprocess_yield_list": [],
-        }
-        tracker_model = getattr(model.tracker, "model", model.tracker)
-        if hasattr(tracker_model, "trim_past_non_cond_mem_for_eval"):
-            tracker_model.trim_past_non_cond_mem_for_eval = True
+            inference_state["num_frames"] = len(loader)
+            inference_state["is_image_only"] = False
+            inference_state["input_batch"].img_batch.tensors = loader
+            inference_state["input_batch"].find_text_batch[0] = target
+            for find_input in inference_state["input_batch"].find_inputs:
+                find_input.text_ids[...] = model.TEXT_ID_FOR_TEXT
+            inference_state["text_prompt"] = target
+            if not hasattr(model, "_init_backbone_out"):
+                raise RuntimeError(
+                    "The installed SAM 3.1 runtime lacks the expected language-cache API. "
+                    "Re-run scripts/install_meta_sam3.sh to install the pinned commit."
+                )
+            # Calling add_prompt would loop over the declared (potentially endless)
+            # stream length. Initialize the same text-only backbone cache directly;
+            # image features remain lazy and are supplied by RollingFrameLoader.
+            inference_state["backbone_out"] = model._init_backbone_out(inference_state)
+            self._sparse_state(inference_state)
+            inference_state["generator_state"] = {
+                "hotstart_buffer": [],
+                "hotstart_removed_obj_ids": set(),
+                "unconfirmed_obj_ids_per_frame": {},
+                "postprocess_yield_list": [],
+            }
+            tracker_model = getattr(model.tracker, "model", model.tracker)
+            if hasattr(tracker_model, "trim_past_non_cond_mem_for_eval"):
+                tracker_model.trim_past_non_cond_mem_for_eval = True
         return inference_state
 
     def run(
@@ -1013,11 +1028,13 @@ class ContinuousSamRunner:
         writer: ContinuousResultWriter | None = None
         started = time.perf_counter()
         last_progress = started
+        last_preview_update = 0.0
         processed_frames = 0
         processed_windows = 0
         mask_count = 0
         highest_object_id = -1
         latest_video: Path | None = None
+        latest_preview: Path | None = None
         status = "running"
         last_pruning = {"cutoff": 0, "cached_output_frames": 0, "tracker_states": 0}
 
@@ -1041,6 +1058,7 @@ class ContinuousSamRunner:
                 "rtsp_reconnects": loader.reconnect_count,
                 "elapsed_seconds": time.perf_counter() - started,
                 "latest_segment": str(latest_video) if latest_video else None,
+                "live_preview": str(latest_preview) if latest_preview else None,
                 "continuous_video": str(output_dir / "annotated.mp4"),
                 "frames_jsonl": str(output_dir / "frames.jsonl"),
                 "identity_database": str(output_dir / "track_identities.sqlite3"),
@@ -1052,13 +1070,17 @@ class ContinuousSamRunner:
                 **self._cuda_memory(),
             }
 
-        def consume_responses(responses: Iterator[tuple[Any, dict[str, Any]]]) -> None:
-            nonlocal highest_object_id, last_progress, mask_count, processed_frames
+        def consume_responses(
+            responses: Iterator[tuple[Any, dict[str, Any]]],
+        ) -> Iterator[dict[str, Any]]:
+            nonlocal highest_object_id, last_preview_update, last_progress
+            nonlocal latest_preview, mask_count, processed_frames
             assert writer is not None
             for frame_index, outputs in responses:
                 frame_index = int(frame_index)
                 packet = loader.packet(frame_index)
                 mask_count += writer.write(frame_index, outputs, packet)
+                latest_preview = writer.live_preview
                 ids = np.asarray(outputs.get("out_obj_ids", []))
                 if ids.size:
                     highest_object_id = max(highest_object_id, int(ids.max()))
@@ -1078,6 +1100,10 @@ class ContinuousSamRunner:
                         flush=True,
                     )
                     last_progress = now
+                if now - last_preview_update >= settings.preview_interval_seconds:
+                    self._write_json(index_path, snapshot())
+                    last_preview_update = now
+                    yield snapshot()
 
         self._write_json(index_path, snapshot())
         try:
@@ -1140,7 +1166,7 @@ class ContinuousSamRunner:
                             output_prob_thresh=settings.threshold,
                             is_last_batch=is_last_batch,
                         )
-                        consume_responses(responses)
+                        yield from consume_responses(responses)
 
                     processed_windows += 1
                     last_pruning = prune_continuous_state(
@@ -1175,7 +1201,7 @@ class ContinuousSamRunner:
                         output_prob_thresh=settings.threshold,
                         is_last_batch=True,
                     )
-                    consume_responses(flush_responses)
+                    yield from consume_responses(flush_responses)
                     last_pruning = prune_continuous_state(
                         inference_state,
                         processed_frame=max(0, frame_start - 1),

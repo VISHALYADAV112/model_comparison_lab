@@ -4,12 +4,31 @@ from unittest.mock import Mock
 import pytest
 
 from model_lab.playground.service import (
+    BoundedVideoController,
     PlaygroundService,
     _records,
     comparison_summary,
     quick_video_frame_limit,
     video_summary,
 )
+
+
+def test_bounded_dashboard_outputs_include_live_preview(tmp_path) -> None:
+    output = tmp_path / "run"
+    output.mkdir()
+    (output / "frames.jsonl").write_text("{}\n")
+    payload = {
+        "status": "running",
+        "live_preview": str(output / "live_preview.jpg"),
+        "latest_segment": None,
+    }
+
+    values = BoundedVideoController._outputs(output, payload)
+
+    assert len(values) == 6
+    assert values[1] == payload["live_preview"]
+    assert values[2] is None
+    assert values[-1] is payload
 
 
 def test_empty_optional_video_records_accept_none() -> None:

@@ -1,6 +1,6 @@
 # Long-video and RTSP operation
 
-Release 0.5.0 makes continuous native SAM 3.1 tracking the default for very
+Release 0.5.1 makes continuous native SAM 3.1 tracking the default for very
 long files and RTSP surveillance. The release 0.4.0 isolated-chunk engine is
 still available as a fallback.
 
@@ -15,7 +15,8 @@ The default `--engine continuous` path:
 4. preserves Meta's hot-start state and native object IDs across windows;
 5. retains 32 frames of native state, exceeding the model's 15-prior-pointer
    and six-prior-mask-memory horizons;
-6. writes masks, JSONL, track records, and video frames immediately; and
+6. writes masks, JSONL, track records, video frames, and an atomic live JPEG
+   preview immediately; and
 7. produces one final browser-compatible MP4 without joining video segments.
 
 The 60-frame setting is a progress/cleanup window, not a new SAM session. It
@@ -54,6 +55,11 @@ not first copy it into upload storage:
 
 Terminal progress is printed at every rolling window and at least every 25
 written frames, including current and peak CUDA allocation.
+
+The dashboard refreshes **Live annotated detection preview** about once per
+second as SAM yields frames. SAM 3.1 deliberately holds its first 15 frames for
+native hot-start confirmation, so the first preview appears after that quality
+buffer has completed rather than immediately after frame zero.
 
 ## RTSP surveillance
 
@@ -108,6 +114,7 @@ The continuous run directory contains:
 
 - `index.json`: atomic status, totals, CUDA telemetry, and rolling-state size;
 - `frames.jsonl`: one committed record per delivered output frame;
+- `live_preview.jpg`: atomically replaced annotated dashboard preview;
 - `masks/`: grayscale mask PNGs;
 - `annotated.mp4`: one final H.264 video (source audio is remuxed for files);
 - `track_identities.sqlite3`: track catalogue; and

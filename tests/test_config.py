@@ -28,3 +28,4 @@ def test_bounded_video_defaults_are_conservative() -> None:
     assert settings["state_history_frames"] == 32
     assert settings["frame_buffer_frames"] == 96
     assert settings["rtsp_frame_queue_capacity"] == 64
+    assert settings["preview_interval_seconds"] == 1.0

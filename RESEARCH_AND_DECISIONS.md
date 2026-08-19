@@ -66,7 +66,7 @@ Primary sources:
 - <https://github.com/facebookresearch/sam3/issues/514>
 
 A database containing only numeric SAM IDs cannot recognize a person after a
-track has ended. Release 0.5.0 archives each track's best crop and reserves
+track has ended. Release 0.5.1 archives each track's best crop and reserves
 fields for a verified identity and embedding. Human review can label those
 records. Automatic cross-visit matching still requires a separately evaluated
 face or person-ReID embedding model, thresholds, camera-domain validation, and

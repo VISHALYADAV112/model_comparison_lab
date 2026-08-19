@@ -594,7 +594,14 @@ def create_app(config: LabConfig) -> gr.Blocks:
                 bounded_summary = gr.Markdown(
                     "Choose a long file or RTSP feed to begin.", elem_classes="result-card"
                 )
-                bounded_latest_video = gr.Video(label="Latest completed annotated segment")
+                bounded_live_preview = gr.Image(
+                    label="Live annotated detection preview",
+                    type="filepath",
+                    interactive=False,
+                )
+                bounded_latest_video = gr.Video(
+                    label="Completed annotated video/segment"
+                )
                 with gr.Row():
                     bounded_index = gr.File(label="Incremental run index")
                     bounded_frames = gr.File(label="Frame results (JSONL)")
@@ -616,6 +623,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     ],
                     [
                         bounded_summary,
+                        bounded_live_preview,
                         bounded_latest_video,
                         bounded_index,
                         bounded_frames,
@@ -637,6 +645,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     ],
                     [
                         bounded_summary,
+                        bounded_live_preview,
                         bounded_latest_video,
                         bounded_index,
                         bounded_frames,

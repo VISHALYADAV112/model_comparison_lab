@@ -236,7 +236,7 @@ def main(argv: list[str] | None = None) -> None:
             updates = bounded.run_rtsp(
                 args.url, *common, args.maximum_minutes, args.engine
             )
-        for _, _, _, _, state in updates:
+        for *_, state in updates:
             print(json.dumps(state), flush=True)
         return
     if args.command == "playground":

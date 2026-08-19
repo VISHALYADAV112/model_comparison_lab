@@ -11,8 +11,10 @@ from PIL import Image
 
 from model_lab.cli import build_parser
 from model_lab.continuous_video import (
+    ContinuousResultWriter,
     ContinuousSamRunner,
     ContinuousVideoSettings,
+    FramePacket,
     RollingFrameLoader,
     SparseFrameStore,
     TrackArchive,
@@ -24,6 +26,8 @@ def test_continuous_settings_keep_native_history() -> None:
     assert ContinuousVideoSettings().validate().state_history_frames == 32
     with pytest.raises(ValueError, match="at least 16"):
         ContinuousVideoSettings(state_history_frames=15).validate()
+    with pytest.raises(ValueError, match="preview interval"):
+        ContinuousVideoSettings(preview_interval_seconds=0).validate()
 
 
 def test_long_video_cli_defaults_to_continuous_native_engine() -> None:
@@ -35,19 +39,21 @@ def test_long_video_cli_defaults_to_continuous_native_engine() -> None:
 
 
 def test_continuous_state_initializes_text_backbone_without_full_stream_loop() -> None:
-    find_input = SimpleNamespace(text_ids=np.asarray([-1]))
-    input_batch = SimpleNamespace(
-        img_batch=SimpleNamespace(tensors=None),
-        find_text_batch=["placeholder", "visual", "geometric"],
-        find_inputs=[find_input],
-    )
+    torch = pytest.importorskip("torch")
 
     class FakeModel:
         TEXT_ID_FOR_TEXT = 0
         tracker = SimpleNamespace(model=SimpleNamespace())
 
+        @torch.inference_mode()
         def init_state(self, **_):
-            return {"input_batch": input_batch}
+            self.find_input = SimpleNamespace(text_ids=torch.tensor([-1]))
+            self.input_batch = SimpleNamespace(
+                img_batch=SimpleNamespace(tensors=None),
+                find_text_batch=["placeholder", "visual", "geometric"],
+                find_inputs=[self.find_input],
+            )
+            return {"input_batch": self.input_batch}
 
         def _init_backbone_out(self, state):
             assert state["input_batch"].find_text_batch[0] == "person"
@@ -61,13 +67,50 @@ def test_continuous_state_initializes_text_backbone_without_full_stream_loop() -
         def first_pil_image():
             return Image.new("RGB", (4, 4))
 
+    model = FakeModel()
     state = ContinuousSamRunner(config=None)._initialize_state(
-        SimpleNamespace(model=FakeModel()), FakeLoader(), "person"
+        SimpleNamespace(model=model), FakeLoader(), "person"
     )
 
     assert state["num_frames"] == 10_000_000
     assert state["backbone_out"] == {"language_features": "initialized"}
-    assert find_input.text_ids.tolist() == [0]
+    assert torch.is_inference(model.find_input.text_ids)
+    assert model.find_input.text_ids.tolist() == [0]
+
+
+def test_continuous_writer_publishes_atomic_live_preview(tmp_path: Path) -> None:
+    cv2 = pytest.importorskip("cv2")
+    writer = ContinuousResultWriter(
+        tmp_path,
+        width=32,
+        height=24,
+        fps=10,
+        source_path=None,
+    )
+    packet = FramePacket(
+        frame_index=0,
+        capture_sequence=0,
+        bgr=np.full((24, 32, 3), 90, dtype=np.uint8),
+        captured_at_utc=None,
+    )
+    try:
+        writer.write(
+            0,
+            {
+                "out_binary_masks": [],
+                "out_obj_ids": [],
+                "out_probs": [],
+                "out_boxes_xywh": [],
+            },
+            packet,
+        )
+        preview = cv2.imread(str(writer.live_preview))
+        assert preview is not None
+        assert preview.shape[:2] == (24, 32)
+        assert not writer.live_preview.with_suffix(".jpg.tmp").exists()
+    finally:
+        writer.video_writer.release()
+        writer.archive.close()
 
 
 def test_sparse_frame_store_does_not_scale_with_frame_number() -> None:
