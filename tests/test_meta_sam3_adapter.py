@@ -7,9 +7,49 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 from PIL import Image
 
-from model_lab.adapters.meta_sam3 import MetaSam3Adapter, _numpy
+from model_lab.adapters.meta_sam3 import MetaSam3Adapter, _numpy, start_video_session
+
+
+def test_multiplex_session_filters_unsupported_false_offload_option() -> None:
+    calls = []
+
+    class FakeModel:
+        def init_state(self, resource_path, offload_video_to_cpu=False, async_loading_frames=False):
+            calls.append(
+                {
+                    "resource_path": resource_path,
+                    "offload_video_to_cpu": offload_video_to_cpu,
+                    "async_loading_frames": async_loading_frames,
+                }
+            )
+            return {"frames": []}
+
+    predictor = SimpleNamespace(model=FakeModel(), async_loading_frames=True, _all_inference_states={})
+
+    response = start_video_session(predictor, "/tmp/video.mp4", offload_state_to_cpu=False)
+
+    assert calls == [
+        {
+            "resource_path": "/tmp/video.mp4",
+            "offload_video_to_cpu": False,
+            "async_loading_frames": True,
+        }
+    ]
+    assert response["session_id"] in predictor._all_inference_states
+
+
+def test_multiplex_session_rejects_requested_unsupported_state_offload() -> None:
+    class FakeModel:
+        def init_state(self, resource_path, offload_video_to_cpu=False):
+            raise AssertionError("init_state should not run")
+
+    predictor = SimpleNamespace(model=FakeModel(), _all_inference_states={})
+
+    with pytest.raises(ValueError, match="does not support state offload"):
+        start_video_session(predictor, "/tmp/video.mp4", offload_state_to_cpu=True)
 
 
 def test_bfloat_tensor_is_cast_to_float32_before_numpy() -> None:

@@ -1,4 +1,9 @@
-from model_lab.playground.service import comparison_summary, video_summary
+from model_lab.playground.service import _records, comparison_summary, video_summary
+
+
+def test_empty_optional_video_records_accept_none() -> None:
+    assert _records(None) == []
+    assert _records("") == []
 
 
 def test_comparison_summary_explains_results_and_errors() -> None:

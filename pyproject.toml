@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "three-model-vision-lab"
-version = "0.2.3"
+version = "0.2.4"
 description = "A reproducible YOLO, RF-DETR, and SAM 3 comparison lab with a LAN playground"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"

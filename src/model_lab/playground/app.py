@@ -409,7 +409,12 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         )
                         with gr.Accordion("GPU memory controls", open=False):
                             offload_video = gr.Checkbox(label="Store decoded video frames in CPU memory")
-                            offload_state = gr.Checkbox(label="Store tracking state in CPU memory")
+                            offload_state = gr.Checkbox(
+                                value=False,
+                                label="Store tracking state in CPU memory — unavailable in SAM 3.1 Multiplex",
+                                info="Video-frame offload is supported; tracking-state offload is not.",
+                                interactive=False,
+                            )
                         run_video = gr.Button("Run advanced video tracking", variant="primary")
                 annotated_video = gr.Video(label="Annotated tracking result")
                 with gr.Row():
@@ -447,7 +452,11 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     live_video = gr.Video(label="Session video", format="mp4")
                     with gr.Column():
                         live_offload_video = gr.Checkbox(label="Offload video frames to CPU")
-                        live_offload_state = gr.Checkbox(label="Offload tracking state to CPU")
+                        live_offload_state = gr.Checkbox(
+                            value=False,
+                            label="Offload tracking state to CPU — unavailable in SAM 3.1 Multiplex",
+                            interactive=False,
+                        )
                         live_start = gr.Button("1. Start session", variant="primary")
                         live_session_id = gr.Textbox(label="Active session ID")
                         live_status = gr.JSON(label="Latest operation")

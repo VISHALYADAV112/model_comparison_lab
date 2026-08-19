@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
+from collections.abc import Iterable
+from pathlib import Path
 from time import perf_counter
-from typing import Iterable
 
 from ..config import LabConfig
 from ..contracts import Detection, ModelResult
 
 
-def parse_points(value: str) -> list[tuple[float, float]]:
+def parse_points(value: str | None) -> list[tuple[float, float]]:
+    if not value:
+        return []
     points: list[tuple[float, float]] = []
     for item in filter(None, (part.strip() for part in value.split(";"))):
         fields = [float(field.strip()) for field in item.split(",")]
@@ -20,7 +22,9 @@ def parse_points(value: str) -> list[tuple[float, float]]:
     return points
 
 
-def parse_boxes(value: str) -> list[tuple[float, float, float, float]]:
+def parse_boxes(value: str | None) -> list[tuple[float, float, float, float]]:
+    if not value:
+        return []
     boxes: list[tuple[float, float, float, float]] = []
     for item in filter(None, (part.strip() for part in value.split(";"))):
         fields = [float(field.strip()) for field in item.split(",")]
@@ -198,4 +202,3 @@ class Sam3CppAdapter:
         start = perf_counter()
         manifest, payload = self.run_image(image, output_dir, mode="text", text=text)
         return self.image_result(image, manifest, payload, perf_counter() - start)
-

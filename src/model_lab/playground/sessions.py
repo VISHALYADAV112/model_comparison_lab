@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import gc
 import json
-from pathlib import Path
 import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import numpy as np
 from PIL import Image
 
-from ..adapters.meta_sam3 import MetaSam3Adapter, _numpy
+from ..adapters.meta_sam3 import MetaSam3Adapter, _numpy, start_video_session
 from ..adapters.sam3_cpp import parse_boxes, parse_points
 from ..config import LabConfig
 from ..rendering import render_video_manifest
@@ -65,13 +65,11 @@ class MetaVideoSessionController:
         if not video_path.is_file():
             raise FileNotFoundError(video_path)
         predictor = self._ensure_predictor()
-        response = predictor.handle_request(
-            {
-                "type": "start_session",
-                "resource_path": str(video_path),
-                "offload_video_to_cpu": offload_video,
-                "offload_state_to_cpu": offload_state,
-            }
+        response = start_video_session(
+            predictor,
+            video_path,
+            offload_video_to_cpu=offload_video,
+            offload_state_to_cpu=offload_state,
         )
         session_id = response["session_id"]
         width, height, fps = MetaSam3Adapter._video_info(video_path)
@@ -115,7 +113,7 @@ class MetaVideoSessionController:
             "output_prob_thresh": threshold,
             "rel_coordinates": False,
         }
-        if text.strip():
+        if (text or "").strip():
             request["text"] = text.strip()
         if points:
             request["points"] = points
@@ -242,4 +240,3 @@ class MetaVideoSessionController:
         annotated = render_video_manifest(session["video"], manifest, output_dir / "annotated.mp4")
         archive = shutil.make_archive(str(output_dir) + "_results", "zip", root_dir=output_dir)
         return str(annotated), str(manifest), archive, payload
-

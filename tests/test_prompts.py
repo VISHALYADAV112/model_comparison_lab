@@ -5,6 +5,8 @@ from model_lab.adapters.sam3_cpp import parse_boxes, parse_points
 
 
 def test_point_and_box_text_formats() -> None:
+    assert parse_points(None) == []
+    assert parse_boxes(None) == []
     assert parse_points("10,20; 30.5,40") == [(10.0, 20.0), (30.5, 40.0)]
     assert parse_boxes("1,2,3,4;5,6,7,8") == [
         (1.0, 2.0, 3.0, 4.0),
@@ -26,4 +28,3 @@ def test_bad_prompt_fails_early() -> None:
         parse_prompt_spec("point-without-key")
     with pytest.raises(ValueError):
         parse_points("1,2,3")
-

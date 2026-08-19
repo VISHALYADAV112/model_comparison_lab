@@ -22,7 +22,9 @@ def _path(value: str | Path | None) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def _records(value: str) -> list[str]:
+def _records(value: str | None) -> list[str]:
+    if not value:
+        return []
     return [item.strip() for item in value.splitlines() if item.strip()]
 
 
@@ -191,7 +193,7 @@ class PlaygroundService:
                 output_prob_threshold=threshold,
             )
         elif backend == "q8":
-            if removals.strip() or direction != "forward":
+            if (removals or "").strip() or direction != "forward":
                 raise ValueError("Removal and backward/both propagation require the official backend")
             adapter = Sam3CppAdapter(self.config)
             common.update(score_threshold=threshold)

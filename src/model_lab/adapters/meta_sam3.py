@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import gc
 import importlib.util
+import inspect
 import json
 from collections.abc import Iterable
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, time
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 from PIL import Image
@@ -35,6 +37,44 @@ def _numpy(value: Any) -> np.ndarray:
 
 def _save_mask(mask: np.ndarray, path: Path) -> None:
     Image.fromarray((mask.astype(np.uint8) * 255), mode="L").save(path)
+
+
+def start_video_session(
+    predictor: Any,
+    resource_path: Path | str,
+    *,
+    offload_video_to_cpu: bool = False,
+    offload_state_to_cpu: bool = False,
+) -> dict[str, Any]:
+    """Start a session while respecting the installed SAM model's init signature."""
+    requested: dict[str, Any] = {
+        "resource_path": str(resource_path),
+        "offload_video_to_cpu": bool(offload_video_to_cpu),
+        "offload_state_to_cpu": bool(offload_state_to_cpu),
+    }
+    if hasattr(predictor, "async_loading_frames"):
+        requested["async_loading_frames"] = predictor.async_loading_frames
+    if hasattr(predictor, "video_loader_type"):
+        requested["video_loader_type"] = predictor.video_loader_type
+
+    parameters = inspect.signature(predictor.model.init_state).parameters
+    accepts_kwargs = any(value.kind is inspect.Parameter.VAR_KEYWORD for value in parameters.values())
+    if offload_state_to_cpu and not accepts_kwargs and "offload_state_to_cpu" not in parameters:
+        raise ValueError(
+            "SAM 3.1 Object Multiplex does not support state offload. "
+            "Turn off 'Store tracking state in CPU memory'."
+        )
+    init_kwargs = requested if accepts_kwargs else {key: value for key, value in requested.items() if key in parameters}
+    inference_state = predictor.model.init_state(**init_kwargs)
+    session_id = str(uuid4())
+    now = time()
+    predictor._all_inference_states[session_id] = {
+        "state": inference_state,
+        "session_id": session_id,
+        "start_time": now,
+        "last_use_time": now,
+    }
+    return {"session_id": session_id}
 
 
 def _xyxy_to_normalized_cxcywh(box: tuple[float, float, float, float], width: int, height: int) -> list[float]:
@@ -353,13 +393,11 @@ class MetaSam3Adapter:
         session_id: str | None = None
         frames: list[dict[str, Any]] = []
         try:
-            response = predictor.handle_request(
-                {
-                    "type": "start_session",
-                    "resource_path": str(video),
-                    "offload_video_to_cpu": offload_video_to_cpu,
-                    "offload_state_to_cpu": offload_state_to_cpu,
-                }
+            response = start_video_session(
+                predictor,
+                video,
+                offload_video_to_cpu=offload_video_to_cpu,
+                offload_state_to_cpu=offload_state_to_cpu,
             )
             session_id = response["session_id"]
             if mode == "text":

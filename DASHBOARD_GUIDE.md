@@ -99,6 +99,14 @@ NumPy cannot represent BF16 directly, so version 0.2.3 converts only returned
 floating-point tensors to FP32 before writing masks and JSON. GPU inference
 itself remains mixed precision.
 
+## SAM 3.1 video session option errors
+
+The pinned SAM 3.1 Multiplex model accepts video-frame CPU offload but not
+tracking-state CPU offload. Version 0.2.4 filters session arguments against
+the installed model signature and disables the unsupported dashboard option.
+It also accepts empty optional Gradio fields as empty lists instead of raising
+`NoneType` errors.
+
 ## Reading the comparison correctly
 
 A larger detection count does not automatically mean better accuracy. YOLO and
