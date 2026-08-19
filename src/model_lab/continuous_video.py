@@ -936,7 +936,7 @@ class ContinuousSamRunner:
         if not hasattr(model, "_init_backbone_out"):
             raise RuntimeError(
                 "The installed SAM 3.1 runtime lacks the expected language-cache API. "
-                "Re-run scripts/install_sam31_official.sh to install the pinned commit."
+                "Re-run scripts/install_meta_sam3.sh to install the pinned commit."
             )
         # Calling add_prompt would loop over the declared (potentially endless)
         # stream length. Initialize the same text-only backbone cache directly;
@@ -995,7 +995,7 @@ class ContinuousSamRunner:
         ):
             raise RuntimeError(
                 "The installed SAM 3.1 runtime lacks Meta's persistent batched-video API. "
-                "Re-run scripts/install_sam31_official.sh to install the pinned commit."
+                "Re-run scripts/install_meta_sam3.sh to install the pinned commit."
             )
 
         model_settings = self.config.raw["sam3"]
