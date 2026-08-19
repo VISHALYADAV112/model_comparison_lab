@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .adapters.meta_sam3 import MetaSam3Adapter
 from .adapters.sam3_cpp import Sam3CppAdapter, parse_boxes, parse_points
@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "playground":
         try:
-            from .playground.app import create_app
+            from .playground.app import APP_CSS, create_app
         except ImportError as exc:
             raise RuntimeError("Install playground dependencies: pip install -e '.[playground]'") from exc
         settings = config.raw["playground"]
@@ -192,6 +192,7 @@ def main(argv: list[str] | None = None) -> None:
             server_port=port,
             auth=auth,
             show_error=True,
+            css=APP_CSS,
         )
         return
     raise AssertionError(args.command)

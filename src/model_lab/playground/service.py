@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import json
-from pathlib import Path
 import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +10,7 @@ from ..adapters.meta_sam3 import MetaSam3Adapter
 from ..adapters.sam3_cpp import Sam3CppAdapter, parse_boxes, parse_points
 from ..compare import compare_image
 from ..config import LabConfig
+from ..doctor import doctor_report
 from ..downloader import download_models, model_status
 from ..rendering import manifest_mask_files, render_sam_manifest, render_video_manifest
 from .sessions import MetaVideoSessionController
@@ -26,6 +26,56 @@ def _records(value: str) -> list[str]:
     return [item.strip() for item in value.splitlines() if item.strip()]
 
 
+def comparison_summary(payload: dict) -> str:
+    lines = [
+        "### Comparison finished",
+        "| Model | Objects / masks | Time | Smallest detected side |",
+        "|---|---:|---:|---:|",
+    ]
+    for result in payload.get("results", []):
+        summary = result.get("summary", {})
+        smallest = summary.get("smallest_box_side_px")
+        lines.append(
+            "| {model} | {count} | {elapsed:.2f} s | {smallest} |".format(
+                model=summary.get("model", result.get("model", "unknown")),
+                count=summary.get("count", len(result.get("detections", []))),
+                elapsed=float(summary.get("elapsed_seconds", result.get("elapsed_seconds", 0))),
+                smallest=f"{smallest} px" if smallest is not None else "—",
+            )
+        )
+    if not payload.get("results"):
+        lines.append("| No model completed | 0 | — | — |")
+    errors = payload.get("errors", {})
+    if errors:
+        lines.extend(["", "#### Models that failed"])
+        lines.extend(f"- **{name}:** {message}" for name, message in errors.items())
+    lines.extend(
+        [
+            "",
+            "The count is an inference result, not an accuracy score. Use labeled ground truth before ranking models.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def video_summary(payload: dict) -> str:
+    frames = payload.get("frames", [])
+    object_ids = {
+        detection.get("instance_id")
+        for frame in frames
+        for detection in frame.get("detections", [])
+        if detection.get("instance_id") is not None
+    }
+    masks = sum(len(frame.get("detections", [])) for frame in frames)
+    elapsed = payload.get("elapsed_seconds")
+    elapsed_text = f" in {float(elapsed):.2f} seconds" if elapsed is not None else ""
+    return (
+        "### Video tracking finished\n"
+        f"Processed **{len(frames)} frames**, tracked **{len(object_ids)} unique objects**, "
+        f"and produced **{masks} frame-level masks**{elapsed_text}."
+    )
+
+
 class PlaygroundService:
     def __init__(self, config: LabConfig) -> None:
         self.config = config
@@ -36,6 +86,18 @@ class PlaygroundService:
         path = self.config.outputs_dir / "playground" / f"{stamp}_{kind}_{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=False)
         return path
+
+    def health(self) -> str:
+        report = doctor_report(self.config)
+        models = report["models"]
+        ready = sum(bool(item["ready"]) for item in models)
+        packages_ready = all(report["packages"].values())
+        gpu = report.get("gpu") or "No NVIDIA GPU detected"
+        icon = "✅" if ready == len(models) and packages_ready and report.get("gpu") else "⚠️"
+        return (
+            f"{icon} **System status:** {ready}/{len(models)} model components ready · "
+            f"GPU: {gpu} · Python {report['python']}"
+        )
 
     def run_image(
         self,
@@ -140,6 +202,44 @@ class PlaygroundService:
         )
         images = [str(path) for path in sorted(output.glob("*_annotated.jpg"))]
         return images, str(output / "comparison.json"), payload
+
+    def quick_compare(
+        self, image: str, target: str, models: list[str], sam_backend: str
+    ) -> tuple[str, list[tuple[str, str]], str, dict]:
+        if not models:
+            raise ValueError("Select at least one model")
+        if "sam3" in models and not target.strip():
+            raise ValueError("Describe what SAM 3 should find, for example: vehicle")
+        images, report, payload = self.compare(image, models, target.strip() or "object", sam_backend)
+        captions = {
+            "yolo": "YOLO26-L detection",
+            "rfdetr": "RF-DETR Large detection",
+            "sam3": f"SAM 3 segmentation: {target.strip()}",
+        }
+        gallery = [(path, captions.get(Path(path).stem.removesuffix("_annotated"), Path(path).stem)) for path in images]
+        return comparison_summary(payload), gallery, report, payload
+
+    def quick_video(
+        self, video: str, target: str, max_frames: int, threshold: float
+    ) -> tuple[str, str, str, str, dict]:
+        if not target.strip():
+            raise ValueError("Describe the object to track, for example: vehicle")
+        annotated, manifest, archive, payload = self.run_video(
+            "official",
+            video,
+            "text",
+            target.strip(),
+            "",
+            "",
+            "",
+            0,
+            int(max_frames),
+            "forward",
+            False,
+            False,
+            float(threshold),
+        )
+        return video_summary(payload), annotated, manifest, archive, payload
 
     def status(self) -> tuple[list[list[Any]], list[dict[str, object]]]:
         status = model_status(self.config)

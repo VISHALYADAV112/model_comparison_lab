@@ -18,13 +18,14 @@ done
 
 "${PYTHON_COMMAND}" -m venv "${LAB_ROOT}/.venv"
 PYTHON_BIN="${LAB_ROOT}/.venv/bin/python"
-"${PYTHON_BIN}" -m pip install --upgrade pip setuptools wheel
+"${PYTHON_BIN}" -m pip install --upgrade pip "setuptools>=75,<82" wheel
 
 # Version follows Meta's current SAM 3.1 installation guide (CUDA 12.8 wheel).
 "${PYTHON_BIN}" -m pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
 "${PYTHON_BIN}" -m pip install -e "${LAB_ROOT}[all]"
 
 MODEL_LAB_PYTHON="${PYTHON_BIN}" "${LAB_ROOT}/scripts/install_meta_sam3.sh"
+"${PYTHON_BIN}" -m pip check
 "${LAB_ROOT}/scripts/build_sam3_cpp.sh"
 
 if [[ "${DOWNLOAD_MODELS}" == "1" ]]; then
@@ -38,4 +39,3 @@ fi
 
 "${LAB_ROOT}/.venv/bin/model-lab" doctor
 echo "Bootstrap complete. Start the LAN UI with scripts/run_playground_lan.sh"
-

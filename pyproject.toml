@@ -1,28 +1,32 @@
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=75,<82", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "three-model-vision-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "A reproducible YOLO, RF-DETR, and SAM 3 comparison lab with a LAN playground"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
   "huggingface-hub>=0.34",
-  "numpy>=1.26",
+  "numpy>=1.26,<2",
   "Pillow>=10.4",
+  # The pinned Meta SAM source still imports pkg_resources, removed in setuptools 82.
+  "setuptools>=75,<82",
+  # Ultralytics may install SciPy; current SciPy 1.18 requires NumPy 2.
+  "scipy<1.18",
 ]
 
 [project.optional-dependencies]
 yolo = ["ultralytics>=8.4"]
 rfdetr = ["rfdetr>=1.9,<2"]
-playground = ["gradio>=5.49,<7", "opencv-python-headless>=4.10"]
+playground = ["gradio>=6,<7", "opencv-python-headless==4.11.0.86"]
 all = [
   "ultralytics>=8.4",
   "rfdetr>=1.9,<2",
-  "gradio>=5.49,<7",
-  "opencv-python-headless>=4.10",
+  "gradio>=6,<7",
+  "opencv-python-headless==4.11.0.86",
 ]
 dev = ["pytest>=8.3"]
 
@@ -35,4 +39,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-

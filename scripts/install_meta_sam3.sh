@@ -26,5 +26,5 @@ else
 fi
 
 "${PYTHON_BIN}" -m pip install -e "${SOURCE_DIR}"
+"${PYTHON_BIN}" -c 'import pkg_resources; import sam3'
 echo "Installed official Meta SAM 3 from pinned revision ${REVISION}"
-

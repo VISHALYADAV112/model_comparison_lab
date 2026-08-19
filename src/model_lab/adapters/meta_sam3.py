@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import gc
+import importlib.util
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -73,6 +75,11 @@ class MetaSam3Adapter:
 
     @staticmethod
     def _require_cuda() -> None:
+        if importlib.util.find_spec("pkg_resources") is None:
+            raise RuntimeError(
+                "Official SAM compatibility dependency is missing. Run: "
+                ".venv/bin/python -m pip install 'setuptools<82'"
+            )
         try:
             import torch
         except ImportError as exc:

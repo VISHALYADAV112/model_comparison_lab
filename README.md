@@ -26,6 +26,8 @@ The bootstrap script creates `.venv`, installs the CUDA PyTorch wheel and all th
 
 After the one-time installation, use [DAILY_START.md](DAILY_START.md) for the short server, SSH-tunnel, browser, and shutdown command list.
 
+Inside the browser, [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md) explains the simple image and video workflows before the advanced SAM controls.
+
 To install everything but postpone model downloads:
 
 ```bash
