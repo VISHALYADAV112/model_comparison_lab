@@ -213,6 +213,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             value=60,
                             step=10,
                             label="Maximum frames to process",
+                            info="This is the number of output frames; start with 30–60.",
                         )
                         with gr.Accordion("Optional quality setting", open=False):
                             quick_video_threshold = gr.Slider(
@@ -394,6 +395,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             value=int(config.raw["playground"]["max_video_frames"]),
                             precision=0,
                             label="Maximum frames (0 means all)",
+                            info="A positive value is enforced as an exact output-frame limit.",
                         )
                         direction = gr.Dropdown(
                             choices=[
@@ -483,7 +485,12 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         label="Direction",
                     )
                     live_prop_start = gr.Number(value=0, precision=0, label="Propagation start frame")
-                    live_max_frames = gr.Number(value=0, precision=0, label="Maximum frames (0 means all)")
+                    live_max_frames = gr.Number(
+                        value=0,
+                        precision=0,
+                        label="Maximum frames (0 means all)",
+                        info="A positive value is enforced as an exact output-frame limit.",
+                    )
                     live_propagate = gr.Button("Propagate", variant="primary")
                     live_cancel = gr.Button("Cancel active propagation", variant="stop")
                 with gr.Row():

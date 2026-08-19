@@ -137,6 +137,11 @@ Official SAM 3.1 text-prompted video tracking:
   --direction forward
 ```
 
+`--max-frames` is the maximum number of unique output frames. Use `0` to
+process the full propagation range. The adapter applies this limit outside
+Meta's finite-window implementation to avoid its final-frame cache boundary
+bug.
+
 Multi-object visual tracking with a later correction:
 
 ```bash

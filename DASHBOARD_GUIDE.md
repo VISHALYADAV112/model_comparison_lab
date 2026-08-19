@@ -33,7 +33,8 @@ deliberately want to inspect every known class.
 
 The output is an annotated MP4. The ZIP contains every mask plus the manifest.
 After a short test works, increase the frame limit or use the advanced video
-tab.
+tab. A positive frame limit is the exact maximum number of unique output
+frames; `0` in the advanced tabs means process the full propagation range.
 
 ## Tab 3: advanced SAM image prompts
 
@@ -106,6 +107,15 @@ tracking-state CPU offload. Version 0.2.4 filters session arguments against
 the installed model signature and disables the unsupported dashboard option.
 It also accepts empty optional Gradio fields as empty lists instead of raising
 `NoneType` errors.
+
+## SAM 3.1 `expanded size of the tensor` video error
+
+Meta's pinned SAM 3.1 source uses an inclusive propagation endpoint but an
+exclusive batched-grounding endpoint when a finite internal frame window is
+sent. The last requested frame can therefore contain an empty feature tensor.
+Version 0.2.5 leaves Meta's internal window unbounded and enforces the chosen
+frame count on streamed results instead. This preserves an exact dashboard and
+CLI output limit and closes the stream as soon as that limit is reached.
 
 ## Reading the comparison correctly
 

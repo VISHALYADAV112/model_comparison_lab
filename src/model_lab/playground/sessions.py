@@ -11,7 +11,12 @@ from uuid import uuid4
 import numpy as np
 from PIL import Image
 
-from ..adapters.meta_sam3 import MetaSam3Adapter, _numpy, start_video_session
+from ..adapters.meta_sam3 import (
+    MetaSam3Adapter,
+    _numpy,
+    start_video_session,
+    stream_video_responses,
+)
 from ..adapters.sam3_cpp import parse_boxes, parse_points
 from ..config import LabConfig
 from ..rendering import render_video_manifest
@@ -180,15 +185,15 @@ class MetaVideoSessionController:
         output_dir.mkdir(parents=True, exist_ok=False)
         frames: list[dict[str, Any]] = []
         seen: set[int] = set()
-        for response in predictor.handle_stream_request(
-            {
-                "type": "propagate_in_video",
-                "session_id": session_id,
-                "propagation_direction": direction,
-                "start_frame_index": int(start_frame),
-                "max_frame_num_to_track": int(max_frames) or None,
-                "output_prob_thresh": threshold,
-            }
+        request = {
+            "type": "propagate_in_video",
+            "session_id": session_id,
+            "propagation_direction": direction,
+            "start_frame_index": int(start_frame),
+            "output_prob_thresh": threshold,
+        }
+        for response in stream_video_responses(
+            predictor, request, max_frames=int(max_frames)
         ):
             frame_index = int(response["frame_index"])
             if frame_index in seen:

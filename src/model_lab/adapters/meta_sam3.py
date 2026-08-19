@@ -4,7 +4,7 @@ import gc
 import importlib.util
 import inspect
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from time import perf_counter, time
 from typing import Any
@@ -75,6 +75,43 @@ def start_video_session(
         "last_use_time": now,
     }
     return {"session_id": session_id}
+
+
+def stream_video_responses(
+    predictor: Any,
+    request: dict[str, Any],
+    *,
+    max_frames: int = 0,
+) -> Iterator[dict[str, Any]]:
+    """Stream at most ``max_frames`` unique frames around Meta's finite-window bug.
+
+    The pinned SAM 3.1 implementation uses an inclusive end frame in its
+    propagation loop but an exclusive end frame in its batched grounding cache.
+    Sending a finite ``max_frame_num_to_track`` therefore produces an empty
+    feature tensor on the final frame. Let Meta stream without that broken
+    internal bound and enforce the user-facing frame count at the API boundary.
+    """
+    limit = int(max_frames)
+    if limit < 0:
+        raise ValueError("Maximum frames must be 0 (all frames) or a positive number")
+
+    stream_request = dict(request)
+    stream_request["max_frame_num_to_track"] = None
+    stream = predictor.handle_stream_request(stream_request)
+    seen: set[int] = set()
+    try:
+        for response in stream:
+            frame_index = int(response["frame_index"])
+            is_new_frame = frame_index not in seen
+            if is_new_frame:
+                seen.add(frame_index)
+            yield response
+            if limit and is_new_frame and len(seen) >= limit:
+                return
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
 
 
 def _xyxy_to_normalized_cxcywh(box: tuple[float, float, float, float], width: int, height: int) -> list[float]:
@@ -444,11 +481,12 @@ class MetaSam3Adapter:
                 "session_id": session_id,
                 "propagation_direction": propagation_direction,
                 "start_frame_index": start_frame,
-                "max_frame_num_to_track": max_frames or None,
                 "output_prob_thresh": output_prob_threshold,
             }
             seen: set[int] = set()
-            for response in predictor.handle_stream_request(stream_request):
+            for response in stream_video_responses(
+                predictor, stream_request, max_frames=max_frames
+            ):
                 frame_index = int(response["frame_index"])
                 if frame_index in seen:
                     continue

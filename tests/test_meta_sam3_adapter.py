@@ -10,7 +10,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from model_lab.adapters.meta_sam3 import MetaSam3Adapter, _numpy, start_video_session
+from model_lab.adapters.meta_sam3 import (
+    MetaSam3Adapter,
+    _numpy,
+    start_video_session,
+    stream_video_responses,
+)
 
 
 def test_multiplex_session_filters_unsupported_false_offload_option() -> None:
@@ -50,6 +55,46 @@ def test_multiplex_session_rejects_requested_unsupported_state_offload() -> None
 
     with pytest.raises(ValueError, match="does not support state offload"):
         start_video_session(predictor, "/tmp/video.mp4", offload_state_to_cpu=True)
+
+
+def test_video_stream_avoids_meta_finite_bound_and_enforces_exact_limit() -> None:
+    requests = []
+    stream_closed = False
+
+    class FakePredictor:
+        def handle_stream_request(self, request):
+            requests.append(request)
+
+            def responses():
+                nonlocal stream_closed
+                try:
+                    for frame_index in range(10):
+                        yield {"frame_index": frame_index, "outputs": {}}
+                finally:
+                    stream_closed = True
+
+            return responses()
+
+    request = {
+        "type": "propagate_in_video",
+        "session_id": "session-1",
+        "max_frame_num_to_track": 3,
+    }
+    responses = list(stream_video_responses(FakePredictor(), request, max_frames=3))
+
+    assert [response["frame_index"] for response in responses] == [0, 1, 2]
+    assert requests[0]["max_frame_num_to_track"] is None
+    assert request["max_frame_num_to_track"] == 3
+    assert stream_closed is True
+
+
+def test_video_stream_rejects_negative_frame_limit() -> None:
+    predictor = SimpleNamespace(handle_stream_request=Mock())
+
+    with pytest.raises(ValueError, match="Maximum frames"):
+        list(stream_video_responses(predictor, {}, max_frames=-1))
+
+    predictor.handle_stream_request.assert_not_called()
 
 
 def test_bfloat_tensor_is_cast_to_float32_before_numpy() -> None:
