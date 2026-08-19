@@ -191,9 +191,9 @@ def create_app(config: LabConfig) -> gr.Blocks:
 
             with gr.Tab("2 · Track an object in video"):
                 gr.Markdown(
-                    "## Simple SAM 3.1 video tracking\n"
-                    "Upload a short video and describe the kind of object to track. SAM 3.1 discovers matching "
-                    "objects and follows them across frames. Start with 30–60 frames before processing a full video."
+                    "## Simple video tracking\n"
+                    "Upload a short video, describe the target, and choose a memory/speed profile. Official SAM 3.1 "
+                    "has the strongest temporal feature set; quantized Q8 uses much less memory but is base SAM 3."
                 )
                 with gr.Row():
                     with gr.Column(scale=3, elem_classes="step-card"):
@@ -205,6 +205,29 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             value="vehicle",
                             label="Object or concept to track",
                             placeholder="Examples: person, car, truck, animal",
+                        )
+                        quick_video_engine = gr.Dropdown(
+                            choices=[
+                                (
+                                    "Official SAM 3.1 — balanced (CPU frames, batch 4)",
+                                    "official_balanced",
+                                ),
+                                (
+                                    "Official SAM 3.1 — minimum VRAM (CPU frames, batch 1)",
+                                    "official_low_vram",
+                                ),
+                                (
+                                    "Quantized SAM 3 Q8 — lowest memory, base tracker",
+                                    "q8",
+                                ),
+                                (
+                                    "Official SAM 3.1 — maximum speed (batch 16; exclusive GPU)",
+                                    "official_fast",
+                                ),
+                            ],
+                            value="official_balanced",
+                            label="Tracking engine and memory profile",
+                            info="Use minimum VRAM on a shared GPU; maximum speed needs most of the L40S.",
                         )
                         gr.Markdown("### Step 3 — Keep the first test small")
                         quick_max_frames = gr.Slider(
@@ -237,7 +260,13 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     quick_video_json = gr.JSON(label="Structured tracking output")
                 quick_video_run.click(
                     service.quick_video,
-                    [quick_video_input, quick_video_target, quick_max_frames, quick_video_threshold],
+                    [
+                        quick_video_input,
+                        quick_video_target,
+                        quick_video_engine,
+                        quick_max_frames,
+                        quick_video_threshold,
+                    ],
                     [
                         quick_video_summary,
                         quick_video_output,
@@ -410,12 +439,24 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             0.01, 0.99, 0.5, step=0.01, label="Output probability threshold"
                         )
                         with gr.Accordion("GPU memory controls", open=False):
-                            offload_video = gr.Checkbox(label="Store decoded video frames in CPU memory")
+                            offload_video = gr.Checkbox(
+                                value=True,
+                                label="Store decoded video frames in CPU memory",
+                                info="Recommended. It saves substantial VRAM on long videos with a small transfer cost.",
+                            )
                             offload_state = gr.Checkbox(
                                 value=False,
                                 label="Store tracking state in CPU memory — unavailable in SAM 3.1 Multiplex",
                                 info="Video-frame offload is supported; tracking-state offload is not.",
                                 interactive=False,
+                            )
+                            grounding_batch_size = gr.Slider(
+                                minimum=1,
+                                maximum=16,
+                                value=int(config.raw["sam3"].get("grounding_batch_size", 4)),
+                                step=1,
+                                label="SAM 3.1 grounding batch size",
+                                info="1 uses the least VRAM; 4 is balanced; 16 is fastest only with a mostly free GPU.",
                             )
                         run_video = gr.Button("Run advanced video tracking", variant="primary")
                 annotated_video = gr.Video(label="Annotated tracking result")
@@ -440,6 +481,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         offload_video,
                         offload_state,
                         video_threshold,
+                        grounding_batch_size,
                     ],
                     [annotated_video, video_manifest, video_archive, video_json],
                 )

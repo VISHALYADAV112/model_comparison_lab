@@ -1,4 +1,14 @@
-from model_lab.playground.service import _records, comparison_summary, video_summary
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
+
+from model_lab.playground.service import (
+    PlaygroundService,
+    _records,
+    comparison_summary,
+    video_summary,
+)
 
 
 def test_empty_optional_video_records_accept_none() -> None:
@@ -48,3 +58,36 @@ def test_video_summary_counts_frames_objects_and_masks() -> None:
     assert "2 unique objects" in summary
     assert "3 frame-level masks" in summary
     assert "2.50 seconds" in summary
+
+
+@pytest.mark.parametrize(
+    ("engine", "expected_backend", "expected_offload", "expected_batch"),
+    [
+        ("official_balanced", "official", True, 4),
+        ("official_low_vram", "official", True, 1),
+        ("official_fast", "official", False, 16),
+        ("q8", "q8", False, 0),
+    ],
+)
+def test_quick_video_maps_memory_profiles(
+    engine: str,
+    expected_backend: str,
+    expected_offload: bool,
+    expected_batch: int,
+) -> None:
+    service = PlaygroundService(SimpleNamespace())
+    service.run_video = Mock(
+        return_value=(
+            "annotated.mp4",
+            "manifest.json",
+            "results.zip",
+            {"frames": []},
+        )
+    )
+
+    service.quick_video("video.mp4", "vehicle", engine, 60, 0.5)
+
+    arguments = service.run_video.call_args.args
+    assert arguments[0] == expected_backend
+    assert arguments[10] is expected_offload
+    assert arguments[13] == expected_batch

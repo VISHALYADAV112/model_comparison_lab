@@ -6,7 +6,7 @@
 | RF-DETR | RF-DETR Large 2026, `rf-detr-large-2026.pth` | Transformer boxes | COCO classes | Independent DETR/DINOv2 detector, strong accuracy and fine-tuning path | Closed vocabulary in this checkpoint; slower than small YOLO variants |
 | SAM 3 image | Official `facebook/sam3` | Open-vocabulary boxes + masks | Text, positive/negative exemplars, points, boxes, mask logits | Exhaustive concept segmentation and precise interactive masks | Gated checkpoint, CUDA-first runtime, prompt quality matters |
 | SAM 3.1 video | Official `facebook/sam3.1` | Discovery + multi-object masks/tracks | Text, points, boxes, refinements | Object Multiplex shared-memory tracking; native temporal evidence | Heavy server runtime; not an 8-bit checkpoint |
-| SAM 3 Q8 | Public `PABannier/sam3.cpp` | Quantized SAM experiment | Text, exemplars, points, boxes | Non-gated 1.1 GB Q8 weight file; CPU/Metal/CUDA bridge | Community conversion of base SAM 3; not official SAM 3.1 |
+| SAM 3 Q8 | Public `PABannier/sam3.cpp` | Quantized images and memory-bank video tracking | Text, exemplars, points, boxes | Non-gated 1.1 GB Q8 weight file; CPU/Metal/CUDA bridge; lowest-memory text-video option in this lab | Community conversion of base SAM 3; not official SAM 3.1 or Object Multiplex |
 
 ## Why YOLO26 Large
 
@@ -25,10 +25,13 @@ The full and quantized experiments answer different questions:
 
 They must be reported separately. A Q8 success cannot be attributed to Object Multiplex, and an official full-precision result cannot be used to claim the Q8 model has the same fidelity.
 
+The August 2026 Hugging Face audit found community SAM 3.1 INT8/INT4 and FP8
+files, but no drop-in CUDA/PyTorch checkpoint with the full text-video path and
+broad tracking validation. See `QUANTIZED_VIDEO_RESEARCH.md` before adding one.
+
 ## Licensing checklist
 
 - Ultralytics YOLO code/models: review AGPL-3.0 or obtain an enterprise license for incompatible commercial deployment.
 - RF-DETR core: Apache-2.0 according to the official repository; re-check any optional platform checkpoint separately.
 - Official Meta SAM code/checkpoints: follow the license and acceptable-use files shipped by Meta and the Hugging Face access terms.
 - `sam3.cpp` code: MIT. Its converted weights derive from SAM weights; do not assume the code license replaces the upstream model-weight terms.
-

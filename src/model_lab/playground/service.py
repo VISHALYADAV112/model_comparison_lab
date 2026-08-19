@@ -172,6 +172,7 @@ class PlaygroundService:
         offload_video: bool,
         offload_state: bool,
         threshold: float,
+        grounding_batch_size: int = 0,
     ) -> tuple[str, str, str, dict]:
         video_path = _path(video)
         output = self._job("sam_video")
@@ -191,6 +192,7 @@ class PlaygroundService:
                 offload_video_to_cpu=offload_video,
                 offload_state_to_cpu=offload_state,
                 output_prob_threshold=threshold,
+                grounding_batch_size=int(grounding_batch_size) or None,
             )
         elif backend == "q8":
             if (removals or "").strip() or direction != "forward":
@@ -263,12 +265,26 @@ class PlaygroundService:
         return comparison_summary(payload), gallery, report, payload
 
     def quick_video(
-        self, video: str, target: str, max_frames: int, threshold: float
+        self,
+        video: str,
+        target: str,
+        engine: str,
+        max_frames: int,
+        threshold: float,
     ) -> tuple[str, str, str, str, dict]:
         if not target.strip():
             raise ValueError("Describe the object to track, for example: vehicle")
+        profiles = {
+            "official_balanced": ("official", True, 4),
+            "official_low_vram": ("official", True, 1),
+            "official_fast": ("official", False, 16),
+            "q8": ("q8", False, 0),
+        }
+        if engine not in profiles:
+            raise ValueError(f"Unknown video engine/profile {engine!r}")
+        backend, offload_video, grounding_batch_size = profiles[engine]
         annotated, manifest, archive, payload = self.run_video(
-            "official",
+            backend,
             video,
             "text",
             target.strip(),
@@ -278,9 +294,10 @@ class PlaygroundService:
             0,
             int(max_frames),
             "forward",
-            False,
+            offload_video,
             False,
             float(threshold),
+            grounding_batch_size,
         )
         return video_summary(payload), annotated, manifest, archive, payload
 

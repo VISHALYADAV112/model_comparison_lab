@@ -83,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
     video.add_argument("--direction", choices=("forward", "backward", "both"), default="forward")
     video.add_argument("--offload-video-to-cpu", action="store_true")
     video.add_argument("--offload-state-to-cpu", action="store_true")
+    video.add_argument(
+        "--grounding-batch-size",
+        type=int,
+        default=0,
+        help="Official SAM 3.1 vision batch (1=min VRAM, 4=balanced, 16=max throughput)",
+    )
     video.add_argument("--cpu", action="store_true")
 
     playground = sub.add_parser("playground", help="Launch the browser playground")
@@ -162,6 +168,7 @@ def main(argv: list[str] | None = None) -> None:
                 propagation_direction=args.direction,
                 offload_video_to_cpu=args.offload_video_to_cpu,
                 offload_state_to_cpu=args.offload_state_to_cpu,
+                grounding_batch_size=args.grounding_batch_size or None,
             )
         else:
             if args.remove or args.direction != "forward":

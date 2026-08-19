@@ -39,6 +39,8 @@ encode_image_size = 0
 score_threshold = 0.35
 nms_threshold = 0.10
 compile = false
+# Peak-VRAM control for official SAM 3.1. Use 1 on a busy GPU or 16 for an exclusive GPU.
+grounding_batch_size = 4
 max_num_objects = 64
 multiplex_count = 16
 use_flash_attention_3 = false

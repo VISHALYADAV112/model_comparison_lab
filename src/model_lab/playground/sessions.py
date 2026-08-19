@@ -14,6 +14,7 @@ from PIL import Image
 from ..adapters.meta_sam3 import (
     MetaSam3Adapter,
     _numpy,
+    configure_video_predictor,
     start_video_session,
     stream_video_responses,
 )
@@ -62,6 +63,9 @@ class MetaVideoSessionController:
                 max_num_objects=int(settings.get("max_num_objects", 64)),
                 multiplex_count=int(settings.get("multiplex_count", 16)),
                 use_fa3=bool(settings.get("use_flash_attention_3", False)),
+            )
+            configure_video_predictor(
+                self.predictor, int(settings.get("grounding_batch_size", 4))
             )
         return self.predictor
 

@@ -13,9 +13,27 @@ from PIL import Image
 from model_lab.adapters.meta_sam3 import (
     MetaSam3Adapter,
     _numpy,
+    configure_video_predictor,
     start_video_session,
     stream_video_responses,
 )
+
+
+def test_video_predictor_uses_requested_grounding_batch_size() -> None:
+    predictor = SimpleNamespace(model=SimpleNamespace(batched_grounding_batch_size=16))
+
+    result = configure_video_predictor(predictor, 4)
+
+    assert result is predictor
+    assert predictor.model.batched_grounding_batch_size == 4
+
+
+@pytest.mark.parametrize("batch_size", [0, 17])
+def test_video_predictor_rejects_invalid_grounding_batch_size(batch_size: int) -> None:
+    predictor = SimpleNamespace(model=SimpleNamespace(batched_grounding_batch_size=16))
+
+    with pytest.raises(ValueError, match="between 1 and 16"):
+        configure_video_predictor(predictor, batch_size)
 
 
 def test_multiplex_session_filters_unsupported_false_offload_option() -> None:

@@ -61,6 +61,7 @@ SAM image and video use a shared manifest structure. Each frame contains detecti
 ## Server execution and safety
 
 - The UI queue has concurrency `1` by default because simultaneously loading large model stacks can exhaust VRAM.
+- Official video defaults to CPU-decoded-frame storage and a configurable grounding batch of `4`; `1` minimizes peak VRAM and `16` maximizes throughput.
 - Official SAM adapters release Python references and empty the CUDA cache after a completed job.
 - Model, runtime, and output directories are local to this workspace and git-ignored.
 - The launcher supports optional `MODEL_LAB_USER` and `MODEL_LAB_PASSWORD` authentication.
@@ -78,5 +79,10 @@ After the standalone comparison is measured, the likely production cascade is:
 5. Re-run high-resolution crops only on small/uncertain/disagreeing regions.
 6. Evaluate against labeled box, mask, and track ground truth.
 
-That cascade spends the expensive SAM computation where it adds information while preserving the fast detectors' broad search ability.
+An additional speed-first experiment is a sparse-discovery cascade: run full
+text discovery only on keyframes, initialize EdgeTAM Q8 or SAM 2.1 Q8 from the
+resulting boxes, and propagate with the tiny visual tracker between keyframes.
+This can be much lighter than full SAM on every frame, but must be benchmarked
+for distant-object recall, occlusion recovery, and identity switches.
 
+That cascade spends the expensive SAM computation where it adds information while preserving the fast detectors' broad search ability.

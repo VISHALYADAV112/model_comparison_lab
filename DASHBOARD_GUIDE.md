@@ -28,13 +28,20 @@ deliberately want to inspect every known class.
 
 1. Upload an MP4 video.
 2. Describe the object type, for example `vehicle`.
-3. Start with 30–60 frames.
-4. Select **Track through video**.
+3. Choose a tracking engine/profile:
+   - **Official balanced** uses CPU frame storage and a four-frame grounding batch.
+   - **Official minimum VRAM** uses one grounding frame at a time.
+   - **Quantized Q8** uses base SAM 3's lightweight memory-bank tracker.
+   - **Official maximum speed** requires a mostly free GPU.
+4. Start with 30–60 frames.
+5. Select **Track through video**.
 
 The output is an annotated MP4. The ZIP contains every mask plus the manifest.
 After a short test works, increase the frame limit or use the advanced video
 tab. A positive frame limit is the exact maximum number of unique output
 frames; `0` in the advanced tabs means process the full propagation range.
+The quantized option is not SAM 3.1 and cannot be used to claim Object
+Multiplex quality or speed.
 
 ## Tab 3: advanced SAM image prompts
 
@@ -55,6 +62,9 @@ Only fill the section that matches the selected prompt method.
 Text mode is still the easiest. Visual mode supports explicit objects and later
 corrections. The syntax examples are displayed next to the fields. CPU offload
 reduces GPU memory use but can make processing slower.
+The grounding batch slider applies to official SAM 3.1 only: use `1` for the
+lowest peak VRAM, `4` for the balanced default, and `16` only on an otherwise
+free high-memory GPU.
 
 ## Tab 5: live video correction
 

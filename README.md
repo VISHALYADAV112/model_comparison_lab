@@ -68,6 +68,7 @@ The browser exposes:
 - corrections on arbitrary frames, object removal, and forward/backward/both propagation with the official backend;
 - a persistent official SAM 3.1 session panel exposing start, add/refine, propagate, remove, reset, cancel, and close operations;
 - SAM 3.1 Object Multiplex capacity, offload, threshold, and propagation controls;
+- official video memory profiles plus the existing quantized Q8 text/video tracker;
 - per-image comparison of YOLO, RF-DETR, and either SAM backend, with a shared target filter for comparable output;
 - structured JSON, individual PNG masks, annotated images/video, and downloadable result archives;
 - model status and resumable downloads.
@@ -141,6 +142,13 @@ Official SAM 3.1 text-prompted video tracking:
 process the full propagation range. The adapter applies this limit outside
 Meta's finite-window implementation to avoid its final-frame cache boundary
 bug.
+
+Official SAM 3.1 defaults to grounding batch size `4`. Override it with
+`--grounding-batch-size 1` for minimum VRAM or `16` for maximum throughput on
+an otherwise free GPU. Add `--offload-video-to-cpu` for long videos. Select
+`--backend q8` to run the public base-SAM-3 GGML memory-bank tracker instead.
+See [QUANTIZED_VIDEO_RESEARCH.md](QUANTIZED_VIDEO_RESEARCH.md) for the audited
+model choices and limitations.
 
 Multi-object visual tracking with a later correction:
 

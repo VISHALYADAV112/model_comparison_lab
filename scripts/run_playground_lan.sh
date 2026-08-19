@@ -6,6 +6,9 @@ HOST="${MODEL_LAB_HOST:-0.0.0.0}"
 PORT="${MODEL_LAB_PORT:-7860}"
 PYTHON_BIN="${LAB_ROOT}/.venv/bin/python"
 
+# Reduce CUDA allocator fragmentation during SAM's changing video batch shapes.
+export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
+
 if [[ ! -x "${LAB_ROOT}/.venv/bin/model-lab" ]]; then
   echo "Run scripts/bootstrap_server.sh first." >&2
   exit 2

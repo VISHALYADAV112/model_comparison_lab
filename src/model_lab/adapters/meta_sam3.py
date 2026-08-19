@@ -77,6 +77,20 @@ def start_video_session(
     return {"session_id": session_id}
 
 
+def configure_video_predictor(predictor: Any, grounding_batch_size: int) -> Any:
+    """Apply the lab's peak-VRAM control to Meta's SAM 3.1 predictor."""
+    batch_size = int(grounding_batch_size)
+    if not 1 <= batch_size <= 16:
+        raise ValueError("SAM 3.1 grounding batch size must be between 1 and 16")
+    model = predictor.model
+    if not hasattr(model, "batched_grounding_batch_size"):
+        raise RuntimeError(
+            "The installed SAM 3.1 runtime does not expose batched grounding configuration"
+        )
+    model.batched_grounding_batch_size = batch_size
+    return predictor
+
+
 def stream_video_responses(
     predictor: Any,
     request: dict[str, Any],
@@ -406,6 +420,7 @@ class MetaSam3Adapter:
         output_prob_threshold: float = 0.5,
         offload_video_to_cpu: bool = False,
         offload_state_to_cpu: bool = False,
+        grounding_batch_size: int | None = None,
     ) -> tuple[Path, dict]:
         self._require_cuda()
         if not self.config.sam3_official_video_model.exists():
@@ -427,6 +442,10 @@ class MetaSam3Adapter:
             multiplex_count=int(settings.get("multiplex_count", 16)),
             use_fa3=bool(settings.get("use_flash_attention_3", False)),
         )
+        effective_grounding_batch_size = int(
+            grounding_batch_size or settings.get("grounding_batch_size", 4)
+        )
+        configure_video_predictor(predictor, effective_grounding_batch_size)
         session_id: str | None = None
         frames: list[dict[str, Any]] = []
         try:
@@ -532,6 +551,8 @@ class MetaSam3Adapter:
             "height": height,
             "fps": fps,
             "elapsed_seconds": perf_counter() - start,
+            "grounding_batch_size": effective_grounding_batch_size,
+            "video_frames_offloaded_to_cpu": bool(offload_video_to_cpu),
             "frames": frames,
         }
         manifest = output_dir / "manifest.json"
