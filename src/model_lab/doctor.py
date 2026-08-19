@@ -17,8 +17,9 @@ def _package_report() -> tuple[dict[str, bool], dict[str, str]]:
         "huggingface_hub": "huggingface_hub",
         "gradio": "gradio",
         "opencv": "cv2",
-        "official_sam3": "sam3",
-        "official_sam3_image_processor": "sam3.model.sam3_image_processor",
+        # Import the real image entry point. A shallow `import sam3` can leave
+        # partially initialized modules behind after a missing dependency.
+        "official_sam3": "sam3.model.sam3_image_processor",
         "official_sam3_pkg_resources": "pkg_resources",
     }
     ready: dict[str, bool] = {}

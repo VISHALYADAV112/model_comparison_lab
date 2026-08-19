@@ -78,12 +78,13 @@ existing environment once with:
 .venv/bin/model-lab doctor --strict
 ```
 
-## `No module named einops`
+## Missing `einops` or `pycocotools`
 
-Meta's pinned SAM source imports `einops` from its image runtime but does not
-list it as a base dependency. Version 0.2.1 of this lab installs it directly
-and checks the full image-processor import before starting the dashboard.
-Repair an older environment after pulling the latest code with:
+Meta's pinned SAM source imports `einops`, `pycocotools`, and `psutil` from
+core image/video modules but does not list all of them as base dependencies.
+Version 0.2.2 of this lab installs them directly and checks the full
+image-processor import before starting the dashboard. Repair an older
+environment after pulling the latest code with:
 
 ```bash
 .venv/bin/python -m pip install -e ".[all]"

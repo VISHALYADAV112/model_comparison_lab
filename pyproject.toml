@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "three-model-vision-lab"
-version = "0.2.1"
+version = "0.2.2"
 description = "A reproducible YOLO, RF-DETR, and SAM 3 comparison lab with a LAN playground"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -12,6 +12,10 @@ dependencies = [
   "huggingface-hub>=0.34",
   # Required by sam3.sam.rope, but missing from Meta's base dependency list.
   "einops>=0.8,<1",
+  # Imported by SAM's core dataset types while constructing the image model.
+  "pycocotools>=2.0.7,<3",
+  # Imported by the official video predictor; declare it instead of relying on Gradio.
+  "psutil>=5.9,<8",
   "numpy>=1.26,<2",
   "Pillow>=10.4",
   # The pinned Meta SAM source still imports pkg_resources, removed in setuptools 82.
