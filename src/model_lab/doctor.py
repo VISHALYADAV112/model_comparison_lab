@@ -18,6 +18,7 @@ def _package_report() -> tuple[dict[str, bool], dict[str, str]]:
         "gradio": "gradio",
         "opencv": "cv2",
         "official_sam3": "sam3",
+        "official_sam3_image_processor": "sam3.model.sam3_image_processor",
         "official_sam3_pkg_resources": "pkg_resources",
     }
     ready: dict[str, bool] = {}

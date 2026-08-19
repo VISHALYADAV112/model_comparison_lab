@@ -68,7 +68,7 @@ The browser exposes:
 - corrections on arbitrary frames, object removal, and forward/backward/both propagation with the official backend;
 - a persistent official SAM 3.1 session panel exposing start, add/refine, propagate, remove, reset, cancel, and close operations;
 - SAM 3.1 Object Multiplex capacity, offload, threshold, and propagation controls;
-- per-image comparison of YOLO, RF-DETR, and either SAM backend;
+- per-image comparison of YOLO, RF-DETR, and either SAM backend, with a shared target filter for comparable output;
 - structured JSON, individual PNG masks, annotated images/video, and downloadable result archives;
 - model status and resumable downloads.
 

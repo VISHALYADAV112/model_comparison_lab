@@ -124,10 +124,21 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             value="vehicle",
                             label="Object or concept",
                             placeholder="Examples: person, vehicle, aircraft, boat, animal",
-                            info="This prompt is used by SAM 3. YOLO and RF-DETR detect their known classes automatically.",
+                            info="SAM 3 uses this as text. YOLO and RF-DETR match it to their known COCO classes.",
+                        )
+                        quick_filter = gr.Checkbox(
+                            value=True,
+                            label="Only show YOLO/RF-DETR boxes matching this target",
+                            info="Turn this off only when you want every class those detectors can recognize.",
                         )
                         gr.Examples(
-                            examples=[["person"], ["vehicle"], ["aircraft"], ["boat"], ["animal"]],
+                            examples=[
+                                ["person"],
+                                ["vehicle"],
+                                ["aircraft"],
+                                ["boat"],
+                                ["animal"],
+                            ],
                             inputs=[quick_target],
                             label="Example prompts",
                         )
@@ -168,7 +179,13 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     quick_json = gr.JSON(label="Structured model output")
                 quick_run.click(
                     service.quick_compare,
-                    [quick_image, quick_target, quick_models, quick_backend],
+                    [
+                        quick_image,
+                        quick_target,
+                        quick_models,
+                        quick_backend,
+                        quick_filter,
+                    ],
                     [quick_summary, quick_gallery, quick_report, quick_json],
                 )
 

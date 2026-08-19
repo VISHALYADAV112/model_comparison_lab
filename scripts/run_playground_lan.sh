@@ -17,6 +17,12 @@ if ! "${PYTHON_BIN}" -c 'import importlib.util, sys; sys.exit(0 if importlib.uti
   exit 3
 fi
 
+if ! "${PYTHON_BIN}" -c 'from sam3.model.sam3_image_processor import Sam3Processor'; then
+  echo "The official SAM image runtime is incomplete." >&2
+  echo "Repair it with: .venv/bin/python -m pip install -e \".[all]\"" >&2
+  exit 3
+fi
+
 echo "Starting the vision dashboard on ${HOST}:${PORT}."
 if [[ "${HOST}" == "127.0.0.1" || "${HOST}" == "localhost" ]]; then
   echo "Keep this terminal open. On the laptop, run in a second terminal:"

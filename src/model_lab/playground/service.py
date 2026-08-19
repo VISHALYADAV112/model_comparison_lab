@@ -33,6 +33,15 @@ def comparison_summary(payload: dict) -> str:
         "| Model | Objects / masks | Time | Smallest detected side |",
         "|---|---:|---:|---:|",
     ]
+    target_filter = payload.get("detector_target_filter")
+    if target_filter:
+        lines[1:1] = [
+            (
+                f"**Target:** `{target_filter}` — YOLO and RF-DETR boxes are filtered to matching closed-set "
+                "classes; SAM 3 uses the text directly."
+            ),
+            "",
+        ]
     for result in payload.get("results", []):
         summary = result.get("summary", {})
         smallest = summary.get("smallest_box_side_px")
@@ -193,7 +202,14 @@ class PlaygroundService:
         archive = shutil.make_archive(str(output) + "_results", "zip", root_dir=output)
         return str(annotated), str(manifest), archive, payload
 
-    def compare(self, image: str, models: list[str], sam_text: str, sam_backend: str) -> tuple[list[str], str, dict]:
+    def compare(
+        self,
+        image: str,
+        models: list[str],
+        sam_text: str,
+        sam_backend: str,
+        detector_target: str | None = None,
+    ) -> tuple[list[str], str, dict]:
         image_path = _path(image)
         output = self._job("comparison")
         payload = compare_image(
@@ -203,24 +219,45 @@ class PlaygroundService:
             models=models,
             sam_text=sam_text,
             sam_backend=sam_backend,
+            detector_target=detector_target,
         )
         images = [str(path) for path in sorted(output.glob("*_annotated.jpg"))]
         return images, str(output / "comparison.json"), payload
 
     def quick_compare(
-        self, image: str, target: str, models: list[str], sam_backend: str
+        self,
+        image: str,
+        target: str,
+        models: list[str],
+        sam_backend: str,
+        filter_detectors: bool = True,
     ) -> tuple[str, list[tuple[str, str]], str, dict]:
         if not models:
             raise ValueError("Select at least one model")
         if "sam3" in models and not target.strip():
             raise ValueError("Describe what SAM 3 should find, for example: vehicle")
-        images, report, payload = self.compare(image, models, target.strip() or "object", sam_backend)
+        target = target.strip() or "object"
+        images, report, payload = self.compare(
+            image,
+            models,
+            target,
+            sam_backend,
+            detector_target=target if filter_detectors else None,
+        )
         captions = {
-            "yolo": "YOLO26-L detection",
-            "rfdetr": "RF-DETR Large detection",
-            "sam3": f"SAM 3 segmentation: {target.strip()}",
+            "yolo": f"YOLO26-L — {target} only" if filter_detectors else "YOLO26-L — all detected classes",
+            "rfdetr": (
+                f"RF-DETR Large — {target} only" if filter_detectors else "RF-DETR Large — all detected classes"
+            ),
+            "sam3": f"SAM 3 segmentation: {target}",
         }
-        gallery = [(path, captions.get(Path(path).stem.removesuffix("_annotated"), Path(path).stem)) for path in images]
+        gallery = [
+            (
+                path,
+                captions.get(Path(path).stem.removesuffix("_annotated"), Path(path).stem),
+            )
+            for path in images
+        ]
         return comparison_summary(payload), gallery, report, payload
 
     def quick_video(

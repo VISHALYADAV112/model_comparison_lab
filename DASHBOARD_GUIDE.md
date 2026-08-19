@@ -17,8 +17,12 @@ The result summary reports object or mask count, inference time, and the
 smallest detected box side. The three annotated images show what each model
 found. Raw JSON is kept inside the optional technical-details section.
 
-YOLO and RF-DETR ignore the text field because they automatically detect their
-known classes. SAM 3 uses the text to decide which concept to segment.
+By default, the target applies to all three results. SAM 3 uses the text
+directly. YOLO and RF-DETR first detect their known COCO classes, then the
+dashboard keeps matching classes. For example, `person` keeps only `person`;
+`vehicle` maps to bicycle, car, motorcycle, airplane, bus, train, truck, and
+boat. Clear **Only show YOLO/RF-DETR boxes matching this target** when you
+deliberately want to inspect every known class.
 
 ## Tab 2: track an object in video
 
@@ -71,6 +75,19 @@ existing environment once with:
 ```bash
 .venv/bin/python -m pip install --upgrade "setuptools<82" -e ".[all]"
 .venv/bin/python -m pip check
+.venv/bin/model-lab doctor --strict
+```
+
+## `No module named einops`
+
+Meta's pinned SAM source imports `einops` from its image runtime but does not
+list it as a base dependency. Version 0.2.1 of this lab installs it directly
+and checks the full image-processor import before starting the dashboard.
+Repair an older environment after pulling the latest code with:
+
+```bash
+.venv/bin/python -m pip install -e ".[all]"
+.venv/bin/python -c 'from sam3.model.sam3_image_processor import Sam3Processor; print("SAM image imports: OK")'
 .venv/bin/model-lab doctor --strict
 ```
 

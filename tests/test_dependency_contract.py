@@ -11,6 +11,7 @@ def test_official_sam_compatibility_dependencies_are_pinned() -> None:
 
     assert "setuptools>=75,<82" in build_dependencies
     assert "setuptools>=75,<82" in runtime_dependencies
+    assert "einops>=0.8,<1" in runtime_dependencies
     assert "numpy>=1.26,<2" in runtime_dependencies
     assert "scipy<1.18" in runtime_dependencies
     assert "opencv-python-headless==4.11.0.86" in all_dependencies

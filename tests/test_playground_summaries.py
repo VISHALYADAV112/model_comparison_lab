@@ -4,6 +4,7 @@ from model_lab.playground.service import comparison_summary, video_summary
 def test_comparison_summary_explains_results_and_errors() -> None:
     summary = comparison_summary(
         {
+            "detector_target_filter": "person",
             "results": [
                 {
                     "model": "YOLO/test.pt",
@@ -19,6 +20,8 @@ def test_comparison_summary_explains_results_and_errors() -> None:
         }
     )
     assert "YOLO/test.pt" in summary
+    assert "Target:" in summary
+    assert "person" in summary
     assert "4" in summary
     assert "7.5 px" in summary
     assert "Some models failed" in summary
