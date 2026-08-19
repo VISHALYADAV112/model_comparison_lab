@@ -24,6 +24,8 @@ hf auth login
 
 The bootstrap script creates `.venv`, installs the CUDA PyTorch wheel and all three Python model stacks, installs pinned official Meta SAM 3 source, builds the pinned Q8 C++ bridge, and downloads all checkpoints. Downloads are resumable. Expect several gigabytes.
 
+After the one-time installation, use [DAILY_START.md](DAILY_START.md) for the short server, SSH-tunnel, browser, and shutdown command list.
+
 To install everything but postpone model downloads:
 
 ```bash
