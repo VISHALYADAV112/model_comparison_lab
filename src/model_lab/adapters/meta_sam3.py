@@ -25,6 +25,11 @@ def _box_from_mask(mask: np.ndarray) -> tuple[float, float, float, float]:
 def _numpy(value: Any) -> np.ndarray:
     if hasattr(value, "detach"):
         value = value.detach().cpu()
+        # NumPy has no bfloat16 dtype. SAM runs under BF16 autocast on CUDA,
+        # so convert floating outputs to FP32 only after inference is finished.
+        if value.is_floating_point():
+            value = value.float()
+        return value.numpy()
     return np.asarray(value)
 
 
@@ -249,6 +254,9 @@ class MetaSam3Adapter:
                         mask_input=previous_logits,
                         multimask_output=multimask,
                     )
+                    masks = _numpy(masks)
+                    scores = _numpy(scores)
+                    low_res = _numpy(low_res) if low_res is not None else None
                     boxes = np.asarray([_box_from_mask(np.asarray(mask).squeeze().astype(bool)) for mask in masks])
                 else:
                     raise ValueError(f"Unknown SAM 3 image mode {mode!r}")

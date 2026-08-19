@@ -9,7 +9,39 @@ from unittest.mock import Mock
 import numpy as np
 from PIL import Image
 
-from model_lab.adapters.meta_sam3 import MetaSam3Adapter
+from model_lab.adapters.meta_sam3 import MetaSam3Adapter, _numpy
+
+
+def test_bfloat_tensor_is_cast_to_float32_before_numpy() -> None:
+    expected = np.asarray([0.25, 0.75], dtype=np.float32)
+
+    class FakeBFloatTensor:
+        converted = False
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def is_floating_point(self) -> bool:
+            return True
+
+        def float(self):
+            self.converted = True
+            return self
+
+        def numpy(self):
+            if not self.converted:
+                raise TypeError("Got unsupported ScalarType BFloat16")
+            return expected
+
+    tensor = FakeBFloatTensor()
+
+    result = _numpy(tensor)
+
+    assert tensor.converted is True
+    np.testing.assert_array_equal(result, expected)
 
 
 def test_official_image_context_enables_meta_precision_settings(monkeypatch) -> None:

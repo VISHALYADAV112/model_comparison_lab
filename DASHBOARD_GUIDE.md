@@ -92,6 +92,13 @@ environment after pulling the latest code with:
 .venv/bin/model-lab doctor --strict
 ```
 
+## `Got unsupported ScalarType BFloat16`
+
+SAM 3 intentionally runs CUDA inference in BF16 on supported NVIDIA GPUs.
+NumPy cannot represent BF16 directly, so version 0.2.3 converts only returned
+floating-point tensors to FP32 before writing masks and JSON. GPU inference
+itself remains mixed precision.
+
 ## Reading the comparison correctly
 
 A larger detection count does not automatically mean better accuracy. YOLO and
