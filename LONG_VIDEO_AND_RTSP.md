@@ -1,133 +1,150 @@
 # Long-video and RTSP operation
 
-Release 0.4.0 adds a duration-independent SAM 3.1 path for very long files and
-RTSP surveillance feeds. It is separate from the ordinary whole-video tab.
+Release 0.5.0 makes continuous native SAM 3.1 tracking the default for very
+long files and RTSP surveillance. The release 0.4.0 isolated-chunk engine is
+still available as a fallback.
 
-## Memory boundary
+## Continuous native engine
 
-The bounded path never gives SAM 3.1 the complete long source. It:
+The default `--engine continuous` path:
 
-1. decodes one fixed-size clip on CPU;
-2. retains only the configured overlap frames;
-3. starts one official SAM 3.1 session for that clip;
-4. writes masks, telemetry, JSONL records, and an annotated MP4 segment;
-5. closes the session and exits the isolated CUDA worker process; and
-6. starts the next clip.
+1. loads SAM 3.1 once;
+2. decodes frames sequentially into a bounded CPU buffer;
+3. advances one native Object Multiplex tracker state through every progress
+   window;
+4. preserves Meta's hot-start state and native object IDs across windows;
+5. retains 32 frames of native state, exceeding the model's 15-prior-pointer
+   and six-prior-mask-memory horizons;
+6. writes masks, JSONL, track records, and video frames immediately; and
+7. produces one final browser-compatible MP4 without joining video segments.
 
-Worker-process exit is the hard CUDA cleanup boundary. Model weights are
-therefore reloaded for every chunk. This is slower than keeping one predictor
-alive, but it prevents stale Python or Meta-runtime tensor references from
-accumulating across an unattended run.
+The 60-frame setting is a progress/cleanup window, not a new SAM session. It
+does not require overlap frames or cross-window IoU matching. Model weights and
+the tracker remain resident until the complete file/feed finishes.
 
-Peak VRAM depends on the fixed chunk, grounding batch, active-object limit,
-resolution, and other GPU users. It does not depend on the total recording
-duration. The defaults are deliberately conservative for the L40S:
-
-- 60 total frames per SAM session;
-- 8 overlap frames;
-- grounding batch 1;
-- at most 16 active objects; and
-- one isolated CUDA worker at a time.
-
-Do not increase multiple limits at once. Read `cuda_peak_allocated_mb` and
-`cuda_peak_reserved_mb` in `chunks.jsonl`, keep substantial headroom, and
-check other GPU processes with `nvidia-smi`.
+Peak memory still depends on resolution, grounding batch, active objects,
+model internals, and other GPU users. It should no longer grow with source
+duration, but this must be confirmed on the L40S before an unattended run.
+Start with grounding batch 1 and at most 16 active objects.
 
 ## Long or very-long file
 
-In dashboard tab **5 · Long video and RTSP surveillance**:
+Dashboard tab **5 · Long video and RTSP surveillance**:
 
 1. Open **Long or very-long video file**.
-2. Upload the file and enter a text concept such as `vehicle`.
-3. Leave the fixed VRAM limits at their safe defaults for the first run.
-4. Set **Maximum chunks** to `1` for a smoke test or `0` for the complete file.
-5. Select **Process long video safely**.
+2. Leave **Tracking engine** on **Continuous native SAM 3.1**.
+3. Upload the file and enter a concept such as `vehicle`.
+4. Keep the 60-frame window, batch 1, and 16-object defaults.
+5. Set **Maximum chunks** to `1` for a smoke test. In continuous mode this
+   means one progress window, not one independent session.
+6. After checking output and VRAM, use `0` for the complete file.
 
-The dashboard updates after every completed chunk. It shows the newest
-annotated segment instead of constructing one ever-growing in-memory video.
-Browser uploads copy the source into Gradio's upload storage first. For a huge
-file that is already on the Rocky Linux server, prefer the CLI so it can read
-that file in place.
-
-The equivalent CLI command is:
+For a huge file already on the Rocky Linux server, use the CLI so Gradio does
+not first copy it into upload storage:
 
 ```bash
 .venv/bin/model-lab long-video \
   --input /data/very-long-video.mp4 \
   --text "vehicle" \
+  --engine continuous \
   --chunk-frames 60 \
-  --overlap-frames 8 \
   --grounding-batch-size 1 \
   --max-active-objects 16
 ```
 
-## RTSP surveillance feed
+Terminal progress is printed at every rolling window and at least every 25
+written frames, including current and peak CUDA allocation.
 
-The server, not the laptop browser, connects to the RTSP endpoint. Confirm the
-Rocky Linux server can route to the camera. Keep Gradio bound to localhost and
-use the existing SSH tunnel.
+## RTSP surveillance
 
-In the RTSP section:
-
-1. Enter the complete `rtsp://` or `rtsps://` URL.
-2. Enter the concept to track.
-3. Use a short maximum duration for the first test.
-4. Select **Start RTSP tracking**.
-5. Use **Stop safely** for a run whose maximum duration is `0`.
-
-Credentials and URL query parameters are not written to manifests. The
-dashboard field masks the URL. Avoid pasting the URL into issue reports or
-terminal screenshots.
-
-RTSP capture runs concurrently with inference but its waiting queue is fixed
-at two chunks by default. If SAM is slower than the camera, the oldest pending
-chunk is deleted and `dropped_rtsp_chunks` increases. This creates an explicit
-coverage gap instead of unbounded RAM, disk queue, and latency growth. Each
-saved frame record includes an approximate UTC capture timestamp.
-
-The CLI form is:
+The Rocky Linux server—not the laptop browser—connects to the RTSP endpoint.
+Confirm the server can route to the camera. Keep Gradio on localhost and use
+the SSH tunnel.
 
 ```bash
 .venv/bin/model-lab rtsp \
   --url "rtsp://USER:PASSWORD@CAMERA/stream" \
   --text "person" \
+  --engine continuous \
   --maximum-minutes 10 \
+  --grounding-batch-size 1 \
+  --max-active-objects 16
+```
+
+Use a finite duration first. `--maximum-minutes 0` continues until **Stop
+safely** or `Ctrl-C`. Credentials and query parameters are redacted from stored
+metadata.
+
+RTSP capture runs in a producer thread with a fixed frame queue. If inference
+is slower than capture, the oldest waiting frames are dropped and
+`dropped_rtsp_frames` increases. This prevents unlimited latency and RAM. Each
+written record includes its capture sequence and UTC timestamp. The continuous
+SAM state survives across delivered frames, including after queue drops and
+camera reconnects.
+
+## Identity database and returning people
+
+Every continuous run creates `track_identities.sqlite3` and
+`identity_candidates/`. The database records:
+
+- native SAM track ID;
+- first and last observed frame;
+- best mask confidence;
+- best saved crop;
+- an optional human-verified identity; and
+- reserved embedding model/vector fields.
+
+This is enough for a person to review and label tracks later. It is not by
+itself automatic re-identification: a number such as SAM ID 27 contains no
+visual information. If somebody leaves long enough for SAM to retire the
+track and later receives ID 93, software needs a face embedding or person-ReID
+embedding to compare ID 93's crop with the database gallery. That future
+matcher must use calibrated thresholds and camera-specific validation; face
+use also needs appropriate consent, access controls, and retention policy.
+
+## Incremental outputs
+
+The continuous run directory contains:
+
+- `index.json`: atomic status, totals, CUDA telemetry, and rolling-state size;
+- `frames.jsonl`: one committed record per delivered output frame;
+- `masks/`: grayscale mask PNGs;
+- `annotated.mp4`: one final H.264 video (source audio is remuxed for files);
+- `track_identities.sqlite3`: track catalogue; and
+- `identity_candidates/`: one best crop per observed SAM ID.
+
+Output storage grows with retained masks/video even though RAM and VRAM are
+bounded. Production surveillance needs a disk quota and retention policy.
+
+## Isolated-chunk fallback
+
+Use `--engine chunked` if server validation shows a leak in the pinned Meta
+runtime or when a hard CUDA process-exit boundary is required:
+
+```bash
+.venv/bin/model-lab long-video \
+  --input /data/very-long-video.mp4 \
+  --text "vehicle" \
+  --engine chunked \
   --chunk-frames 60 \
   --overlap-frames 8 \
   --grounding-batch-size 1
 ```
 
-The capture reconnects a limited number of times after a read failure. Change
-queue and reconnect defaults in `configs/models.toml`.
+This fallback starts a fresh SAM session in each isolated process, emits
+segments, and joins chunk-local IDs through overlap-box IoU. It is more robust
+against runtime leaks but slower, and its identity handoff is approximate.
 
-## Identity handoff
+## Required validation
 
-SAM object IDs are local to one finite session. The bounded runner assigns
-global IDs by comparing boxes on matching overlap frames, then retains only a
-small time-limited CPU registry. The original chunk ID is preserved as
-`chunk_instance_id`.
+Before calling the continuous engine quality-equivalent to an ordinary
+whole-video run:
 
-This keeps state bounded, but identity can change after a long disappearance,
-severe occlusion, camera cut, or a dropped RTSP chunk. Reliable forensic
-identity across those events requires an evaluated appearance/re-identification
-stage and labeled tracking data; it should not be inferred from SAM IDs alone.
+1. run the same 300–1000-frame source through whole-video and continuous modes;
+2. compare output frame count, native IDs, per-frame masks/boxes, and mask IoU;
+3. record peak allocated/reserved VRAM after each 60-frame window;
+4. verify the peak plateaus across at least ten windows; and
+5. test RTSP only with a user-authorized camera and a short duration.
 
-## Incremental outputs
-
-Each run creates a directory under `outputs/playground/` containing:
-
-- `index.json`: atomically updated run status and totals;
-- `frames.jsonl`: one committed record per unique frame;
-- `chunks.jsonl`: per-chunk paths, timings, and CUDA peaks;
-- `segments/`: browser-compatible annotated MP4 clips;
-- `chunks/`: per-chunk manifests and masks; and
-- `worker_config.json`: non-secret local runtime configuration for isolated
-workers.
-
-An isolated worker also has a finite timeout (30 minutes by default). A timed
-out process is killed and its CUDA context is reclaimed; change the timeout in
-`configs/models.toml` only after measuring legitimate slow chunks.
-
-Temporary decoded input chunks are deleted after successful processing. Output
-storage still grows with retained masks and annotated segments, so continuous
-production surveillance also needs a site-specific disk retention policy.
+The implementation preserves one native forward tracker and hot-start buffer,
+but exact model-weight inference cannot be validated on the development Mac.

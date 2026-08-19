@@ -18,28 +18,32 @@ browser on laptop ── HTTP over trusted LAN ── Gradio on server ── ad
 ## Duration-independent video path
 
 Whole-video sessions remain useful for short interactive work. Long files and
-RTSP use a different bounded pipeline:
+RTSP default to a persistent rolling pipeline:
 
 ```text
-file decoder ────────────────┐
-                             ├─ rolling CPU clip + overlap ─ isolated SAM 3.1 worker
-RTSP capture ─ queue(max=2) ─┘                                      │
-                                                                    ├─ masks/chunk manifest
-                                                                    ├─ annotated MP4 segment
-                                                                    ├─ frames/chunks JSONL
-                                                                    └─ overlap ID handoff on CPU
+file lazy decoder ─────────────┐
+                               ├─ bounded frame buffer ─ one persistent SAM 3.1 session
+RTSP capture ─ frame queue ────┘                              │
+                                                              ├─ rolling native memory
+                                                              ├─ one native SAM ID space
+                                                              ├─ masks + frames JSONL
+                                                              ├─ one annotated MP4
+                                                              └─ SQLite track/crop catalogue
 ```
 
-Only overlap frames remain in the decoder's CPU memory. Each SAM worker sees a
-finite clip, uses an explicit grounding batch and active-object ceiling, closes
-its session, and exits. CUDA process exit prevents per-session tensor
-references or allocator state from carrying into the next chunk. Total video
-duration therefore affects elapsed time and output storage, not peak VRAM.
+The loader exposes global frame numbers lazily and keeps only frames waiting
+for SAM's hot-start/post-processing delay. Meta's native production batching
+method advances one tracker state through fixed progress windows. Non-
+conditioning memory older than the 15-frame object-pointer horizon is pruned.
+Explicit point prompts are protected, while periodic detector conditioning is
+bounded to the four frames the pinned tracker can attend to. Full-resolution
+output masks are written and released immediately.
 
-SAM IDs are session-local. A bounded CPU stitcher matches boxes across overlap
-frames, assigns global IDs, and expires old track records. RTSP capture runs in
-a producer thread with a two-chunk queue; stale pending chunks are dropped when
-inference falls behind rather than allowing queue memory and latency to grow.
+The same SAM IDs therefore continue across every window without overlap IoU
+matching. RTSP capture has a bounded frame queue; stale waiting frames are
+dropped if inference is slower than capture. The previous isolated-worker
+pipeline remains available as `--engine chunked`. It is a stronger cleanup
+boundary but reloads SAM and requires approximate ID stitching.
 
 ## Why three adapters instead of one transformer doing everything
 
@@ -98,9 +102,11 @@ SAM image and video use a shared manifest structure. Each frame contains detecti
   loop and exclusive detector cache, so finite tests remain internally bounded
   and do not prepare the full source video.
 - Official SAM adapters release Python references and empty the CUDA cache after a completed job.
-- Long-file and RTSP chunks additionally run in child processes, making process
-  exit a hard CUDA cleanup boundary. Their defaults are batch 1, 60 frames, 8
-  overlap frames, and 16 active objects.
+- Continuous long-file and RTSP processing keeps one native session, a
+  32-frame tracking-history allowance, a 96-frame decoded buffer, grounding
+  batch 1, and at most 16 active objects. The isolated-worker fallback remains
+  available when a hard CUDA process-exit boundary is more important than
+  native identity continuity.
 - Model, runtime, and output directories are local to this workspace and git-ignored.
 - The launcher supports optional `MODEL_LAB_USER` and `MODEL_LAB_PASSWORD` authentication.
 - `0.0.0.0` is only for a trusted LAN. An SSH local-port tunnel with the server bound to `127.0.0.1` is preferred.

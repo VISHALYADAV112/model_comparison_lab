@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 19 August 2026. Project release: 0.4.0.
+Last updated: 19 August 2026. Project release: 0.5.0.
 
 ## Copy this into the new chat
 
@@ -11,11 +11,12 @@ then inspect git status, the latest commit, and
 /Users/vishalyadav/Desktop/Practice/long_range_vision/error.txt. The active
 repository is model_comparison_lab on branch main and changes must be tested
 and pushed to GitHub so the Rocky Linux server can pull them. Current priority:
-verify release 0.4.0 on the server. Q8 video must get past frame decoding;
-official SAM 3.1 batch 4 must complete the first-60-frame test; then the new
-bounded long-video path must complete two chunks with stable peak VRAM. Test
-RTSP only with a user-authorized camera reachable from the server. Keep the
-architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
+verify release 0.5.0's continuous native SAM 3.1 engine on the server. First
+run one 60-frame window, then 300+ frames while checking that peak VRAM and
+rolling-state counts plateau. Compare native IDs/masks against ordinary
+whole-video output. Test RTSP only with a user-authorized camera reachable from
+the server. Keep the architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM
+runtime.
 ```
 
 ## Goal and architecture decision
@@ -141,6 +142,10 @@ needed.
 - Added bounded long-file and RTSP processing with isolated per-chunk CUDA
   workers, overlap ID handoff, incremental JSONL/MP4 outputs, RTSP reconnects,
   UTC capture timestamps, and a fixed two-chunk capture queue.
+- Added continuous native SAM 3.1 processing: one model/session and native ID
+  space, lazy frame decode, Meta's stateful production batching, conservative
+  rolling-state pruning, one final MP4, bounded RTSP frame capture, and a
+  SQLite track/best-crop catalogue. The isolated-chunk path remains a fallback.
 
 ## Release 0.3.3 fixes being verified
 
@@ -173,10 +178,36 @@ fails, restart the dashboard, confirm free VRAM with `nvidia-smi`, and test
 batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 `error.txt`; obtain it before claiming a remaining model or allocator bug.
 
-## Release 0.4.0 bounded video path
+## Release 0.5.0 continuous native SAM 3.1 path
 
-Dashboard tab **Long video and RTSP surveillance** is the duration-independent
-path. It decodes a rolling CPU clip, retains only overlap frames, runs each
+Dashboard tab **Long video and RTSP surveillance** defaults to **Continuous
+native SAM 3.1**. It keeps one predictor and tracking state for the complete
+file/feed. The 60-frame control is only a progress/pruning window: SAM is not
+reset, IDs are not stitched, and frames are decoded lazily through a compact
+global-index adapter.
+
+The runner invokes the pinned runtime's `Sam3MultiplexTrackingProd` batching
+method so the 15-frame hot-start state survives window boundaries. It retains
+32 frames of tracker history, explicit point prompts, the latest four detector
+conditioning frames per object, at most 96 decoded pending originals, and a
+bounded 64-frame RTSP capture queue. Masks,
+JSONL, track crops, and video frames are written incrementally. File outputs
+are one final H.264 MP4 with source audio; RTSP outputs are video-only.
+
+`track_identities.sqlite3` stores first/last frame, best confidence, and best
+crop for each SAM ID, with nullable verified-identity/embedding fields. It
+supports later human review but is not automatic ReID. A numeric SAM ID alone
+cannot recognize a person who returns after track retirement; that requires a
+separately evaluated face or person-ReID embedding model.
+
+This path has unit/static validation on the Mac but still requires model-weight
+validation on the L40S. Do not claim exact whole-video equivalence or a flat
+VRAM curve until the server comparison passes. Use `--engine chunked` if the
+pinned Meta runtime still leaks or a process-exit cleanup boundary is needed.
+
+## Release 0.4.0 isolated-chunk fallback
+
+The fallback decodes a rolling CPU clip, retains only overlap frames, runs each
 finite SAM 3.1 chunk in a separate Python/CUDA process, writes results
 incrementally, and lets the worker process exit before the next chunk. Defaults
 are 60 frames, 8 overlap frames, batch 1, and 16 active objects.
@@ -202,10 +233,13 @@ incremented instead of allowing memory and latency to grow without bound.
 5. If it OOMs, copy the complete CUDA exception and `nvidia-smi` output into
    `error.txt`. Retry batch 1 only after restarting the dashboard.
 6. Do not use whole-video mode until the 60- and 300-frame tests succeed.
-7. In the bounded tab, run a long file with **Maximum chunks = 2** using the
-   safe defaults. Confirm `chunks.jsonl` contains two stable CUDA peaks and
-   `frames.jsonl` has no duplicate global frame indices.
-8. For RTSP, use a short authorized test feed and finite duration. Confirm the
+7. In tab 5 select **Continuous native SAM 3.1**, run **Maximum chunks = 1**,
+   and confirm 60 frames plus one final MP4, `frames.jsonl`, and
+   `track_identities.sqlite3`.
+8. Run 300+ frames and confirm `rolling_state.cached_output_frames`, allocated
+   VRAM, and reserved VRAM plateau. Compare IDs and mask IoU with an ordinary
+   whole-video run on the same source.
+9. For RTSP, use a short authorized test feed and finite duration. Confirm the
    stored source contains no credentials, Stop works, and disconnect/reconnect
    does not create an unbounded pending queue.
 
@@ -225,10 +259,11 @@ UV_CACHE_DIR=/tmp/model_lab_uv_cache \
 uv run --no-project --isolated --python 3.12 --with ruff \
   ruff check src/model_lab/__init__.py \
   src/model_lab/adapters/meta_sam3.py src/model_lab/bounded_video.py \
-  src/model_lab/bounded_worker.py src/model_lab/cli.py \
+  src/model_lab/bounded_worker.py src/model_lab/continuous_video.py \
+  src/model_lab/cli.py \
   src/model_lab/playground/app.py src/model_lab/playground/service.py \
   src/model_lab/playground/sessions.py \
-  tests/test_bounded_video.py tests/test_config.py \
+  tests/test_bounded_video.py tests/test_continuous_video.py tests/test_config.py \
   tests/test_meta_sam3_adapter.py \
   tests/test_cpp_bridge_contract.py
 ```
@@ -236,7 +271,7 @@ uv run --no-project --isolated --python 3.12 --with ruff \
 Model-weight inference cannot be fully validated on the Mac. Previous local
 checks compiled the Q8 bridge against its exact pinned source, validated the
 H.264 test video's raw frame byte count, and tested rendering with H.264.
-The complete test suite passes (50 tests). A repository-wide Ruff run still reports five
+The complete test suite passes (59 tests). A repository-wide Ruff run still reports four
 pre-existing import-order/unused-import findings in untouched files; changed
 files are clean.
 

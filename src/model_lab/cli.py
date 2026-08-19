@@ -26,6 +26,12 @@ def _add_bounded_video_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--grounding-batch-size", type=int, default=1)
     parser.add_argument("--max-active-objects", type=int, default=16)
     parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--engine",
+        choices=("continuous", "chunked"),
+        default="continuous",
+        help="continuous keeps one native SAM 3.1 session; chunked is the reset/stitch fallback",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -223,9 +229,13 @@ def main(argv: list[str] | None = None) -> None:
             args.threshold,
         )
         if args.command == "long-video":
-            updates = bounded.run_file(str(args.input), *common, args.max_chunks)
+            updates = bounded.run_file(
+                str(args.input), *common, args.max_chunks, args.engine
+            )
         else:
-            updates = bounded.run_rtsp(args.url, *common, args.maximum_minutes)
+            updates = bounded.run_rtsp(
+                args.url, *common, args.maximum_minutes, args.engine
+            )
         for _, _, _, _, state in updates:
             print(json.dumps(state), flush=True)
         return

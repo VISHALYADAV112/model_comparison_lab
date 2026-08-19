@@ -25,3 +25,6 @@ def test_bounded_video_defaults_are_conservative() -> None:
     assert settings["max_active_objects"] == 16
     assert settings["rtsp_queue_capacity"] == 2
     assert settings["worker_timeout_seconds"] == 1800
+    assert settings["state_history_frames"] == 32
+    assert settings["frame_buffer_frames"] == 96
+    assert settings["rtsp_frame_queue_capacity"] == 64

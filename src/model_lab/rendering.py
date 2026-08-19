@@ -85,7 +85,11 @@ def manifest_mask_files(manifest_path: Path) -> list[Path]:
     return files
 
 
-def _encode_browser_video(raw_video: Path, source_video: Path, output_path: Path) -> None:
+def _encode_browser_video(
+    raw_video: Path,
+    source_video: Path | None,
+    output_path: Path,
+) -> None:
     """Convert OpenCV's intermediate into an H.264 MP4 Gradio can play."""
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -100,12 +104,8 @@ def _encode_browser_video(raw_video: Path, source_video: Path, output_path: Path
         "error",
         "-i",
         str(raw_video),
-        "-i",
-        str(source_video),
         "-map",
         "0:v:0",
-        "-map",
-        "1:a:0?",
         "-c:v",
         "libx264",
         "-preset",
@@ -114,13 +114,13 @@ def _encode_browser_video(raw_video: Path, source_video: Path, output_path: Path
         "20",
         "-pix_fmt",
         "yuv420p",
-        "-c:a",
-        "aac",
         "-movflags",
         "+faststart",
-        "-shortest",
-        str(output_path),
     ]
+    if source_video is not None:
+        command[command.index("-map") : command.index("-map")] = ["-i", str(source_video)]
+        command.extend(["-map", "1:a:0?", "-c:a", "aac", "-shortest"])
+    command.append(str(output_path))
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:

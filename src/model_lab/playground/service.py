@@ -21,6 +21,11 @@ from ..bounded_video import (
 )
 from ..compare import compare_image
 from ..config import LabConfig
+from ..continuous_video import (
+    ContinuousSamRunner,
+    ContinuousVideoSettings,
+    RollingFrameLoader,
+)
 from ..doctor import doctor_report
 from ..downloader import download_models, model_status
 from ..rendering import manifest_mask_files, render_sam_manifest, render_video_manifest
@@ -134,19 +139,28 @@ def bounded_video_summary(payload: dict[str, Any]) -> str:
         "failed": "Failed",
         "starting": "Starting",
     }.get(status, status.title())
-    dropped = int(payload.get("dropped_rtsp_chunks") or 0)
-    dropped_text = (
-        f" RTSP capture dropped **{dropped} pending chunks** to prevent an unbounded queue."
-        if dropped
-        else ""
+    continuous = payload.get("engine") == "continuous_native_sam31"
+    dropped_frames = int(payload.get("dropped_rtsp_frames") or 0)
+    dropped_chunks = int(payload.get("dropped_rtsp_chunks") or 0)
+    if dropped_frames:
+        dropped_text = f" RTSP capture dropped **{dropped_frames} frames** because inference was behind."
+    elif dropped_chunks:
+        dropped_text = f" RTSP capture dropped **{dropped_chunks} pending chunks** to prevent an unbounded queue."
+    else:
+        dropped_text = ""
+    unit = "rolling windows" if continuous else "bounded chunks"
+    identity_text = (
+        "One native SAM 3.1 session and ID space stayed active; there was no cross-window ID stitching."
+        if continuous
+        else "Each finite SAM session was mapped into a global ID space by overlap matching."
     )
     return (
         f"### {status_label}\n"
         f"Processed **{int(payload.get('processed_frames') or 0)} frames** in "
-        f"**{int(payload.get('processed_chunks') or 0)} bounded chunks**, assigned "
-        f"**{int(payload.get('unique_objects') or 0)} global object IDs**, and wrote "
+        f"**{int(payload.get('processed_chunks') or 0)} {unit}**, assigned "
+        f"**{int(payload.get('unique_objects') or 0)} object IDs**, and wrote "
         f"**{int(payload.get('frame_level_masks') or 0)} masks**.{dropped_text}\n\n"
-        "Only one finite SAM 3.1 session is resident at a time. Results are committed after each chunk."
+        f"{identity_text} Results are committed incrementally."
     )
 
 
@@ -156,6 +170,7 @@ class BoundedVideoController:
         self.job_factory = job_factory
         self.active_session_check = active_session_check or (lambda: False)
         self.runner = BoundedSamRunner(config)
+        self.continuous_runner = ContinuousSamRunner(config)
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
 
@@ -197,9 +212,28 @@ class BoundedVideoController:
         self.stop_event.set()
         payload = {
             "status": "stopping",
-            "message": "Stop requested. The active finite SAM chunk will finish and release its session.",
+            "message": "Stop requested. The active SAM window will finish and release its session.",
         }
-        return "### Stop requested\nThe current bounded chunk will finish, then capture will stop.", payload
+        return "### Stop requested\nThe current SAM window will finish, then capture will stop.", payload
+
+    def _continuous_settings(
+        self,
+        window_frames: int,
+        grounding_batch_size: int,
+        max_active_objects: int,
+        threshold: float,
+    ) -> ContinuousVideoSettings:
+        defaults = self.config.raw.get("bounded_video", {})
+        return ContinuousVideoSettings(
+            window_frames=int(window_frames),
+            grounding_batch_size=int(grounding_batch_size),
+            max_active_objects=int(max_active_objects),
+            threshold=float(threshold),
+            state_history_frames=int(defaults.get("state_history_frames", 32)),
+            frame_buffer_frames=int(defaults.get("frame_buffer_frames", 96)),
+            rtsp_queue_frames=int(defaults.get("rtsp_frame_queue_capacity", 64)),
+            progress_every_frames=int(defaults.get("progress_every_frames", 25)),
+        ).validate()
 
     def _run(
         self,
@@ -252,6 +286,62 @@ class BoundedVideoController:
             self.stop_event.set()
             self.lock.release()
 
+    def _run_continuous(
+        self,
+        loader: RollingFrameLoader,
+        output: Path,
+        *,
+        source_kind: str,
+        source_label: str,
+        source_path: Path | None,
+        target: str,
+        settings: ContinuousVideoSettings,
+        maximum_windows: int = 0,
+    ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
+        if self.active_session_check():
+            loader.close()
+            raise RuntimeError(
+                "Close the persistent SAM 3.1 session in tab 6 before starting continuous processing"
+            )
+        if not self.lock.acquire(blocking=False):
+            loader.close()
+            raise RuntimeError(
+                "Another long-video or RTSP job is already using the GPU"
+            )
+        try:
+            starting = {
+                "status": "starting",
+                "engine": "continuous_native_sam31",
+                "processed_frames": 0,
+                "processed_chunks": 0,
+                "unique_objects": 0,
+                "frame_level_masks": 0,
+                "dropped_rtsp_frames": 0,
+            }
+            yield (
+                "### Starting continuous SAM 3.1 processing\nLoading one model and opening one native tracking session.",
+                None,
+                None,
+                None,
+                starting,
+            )
+            for payload in self.continuous_runner.run(
+                loader,
+                output,
+                source_kind=source_kind,
+                source_label=source_label,
+                source_path=source_path,
+                target=target,
+                settings=settings,
+                stop_event=self.stop_event,
+                maximum_windows=maximum_windows,
+            ):
+                yield self._outputs(output, payload)
+        finally:
+            self.stop_event.set()
+            loader.close()
+            self.lock.release()
+
     def run_file(
         self,
         video: str,
@@ -262,12 +352,46 @@ class BoundedVideoController:
         max_active_objects: int,
         threshold: float,
         max_chunks: int,
+        engine: str = "continuous",
     ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
         video_path = _path(video)
         if not video_path.is_file():
             raise FileNotFoundError(video_path)
         if int(max_chunks) < 0:
             raise ValueError("Maximum chunks cannot be negative")
+        if engine == "continuous":
+            self.stop_event.clear()
+            continuous_settings = self._continuous_settings(
+                chunk_frames,
+                grounding_batch_size,
+                max_active_objects,
+                threshold,
+            )
+            output = self.job_factory("continuous_long_video")
+            loader = RollingFrameLoader(
+                str(video_path),
+                stop_event=self.stop_event,
+                frame_buffer_frames=continuous_settings.frame_buffer_frames,
+                hard_frame_limit=(
+                    int(max_chunks) * continuous_settings.window_frames
+                    if int(max_chunks)
+                    else 0
+                ),
+                tensor_factory=None,
+            )
+            yield from self._run_continuous(
+                loader,
+                output,
+                source_kind="long_video",
+                source_label=video_path.name,
+                source_path=video_path,
+                target=target,
+                settings=continuous_settings,
+                maximum_windows=int(max_chunks),
+            )
+            return
+        if engine != "chunked":
+            raise ValueError("Tracking engine must be 'continuous' or 'chunked'")
         settings = self._settings(
             chunk_frames,
             overlap_frames,
@@ -299,10 +423,45 @@ class BoundedVideoController:
         max_active_objects: int,
         threshold: float,
         maximum_minutes: float,
+        engine: str = "continuous",
     ) -> Iterator[tuple[str, str | None, str, str | None, dict]]:
         source = validate_rtsp_url(rtsp_url)
         if float(maximum_minutes) < 0:
             raise ValueError("Maximum RTSP duration cannot be negative")
+        if engine == "continuous":
+            self.stop_event.clear()
+            continuous_settings = self._continuous_settings(
+                chunk_frames,
+                grounding_batch_size,
+                max_active_objects,
+                threshold,
+            )
+            output = self.job_factory("continuous_rtsp")
+            defaults = self.config.raw.get("bounded_video", {})
+            loader = RollingFrameLoader(
+                source,
+                stop_event=self.stop_event,
+                frame_buffer_frames=continuous_settings.frame_buffer_frames,
+                rtsp=True,
+                maximum_minutes=float(maximum_minutes),
+                rtsp_queue_frames=continuous_settings.rtsp_queue_frames,
+                reconnect_attempts=int(defaults.get("rtsp_reconnect_attempts", 5)),
+                reconnect_delay_seconds=float(
+                    defaults.get("rtsp_reconnect_delay_seconds", 2)
+                ),
+            )
+            yield from self._run_continuous(
+                loader,
+                output,
+                source_kind="rtsp",
+                source_label=redact_rtsp_url(source),
+                source_path=None,
+                target=target,
+                settings=continuous_settings,
+            )
+            return
+        if engine != "chunked":
+            raise ValueError("Tracking engine must be 'continuous' or 'chunked'")
         settings = self._settings(
             chunk_frames,
             overlap_frames,

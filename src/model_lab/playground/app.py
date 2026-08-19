@@ -495,10 +495,10 @@ def create_app(config: LabConfig) -> gr.Blocks:
 
             with gr.Tab("5 · Long video and RTSP surveillance"):
                 gr.Markdown(
-                    "## Bounded-memory SAM 3.1\n"
-                    "Use this for very long recordings or an RTSP camera. The input is divided into finite, "
-                    "overlapping clips; each clip gets a fresh SAM session and is written to disk before the next "
-                    "one begins. This keeps video duration from increasing VRAM usage."
+                    "## Continuous rolling-state SAM 3.1\n"
+                    "Use this for very long recordings or an RTSP camera. The recommended engine keeps one "
+                    "native SAM 3.1 session and ID space for the complete run while frames and obsolete state "
+                    "are released continuously. No cross-window ID stitching is used."
                 )
                 with gr.Row():
                     with gr.Column(scale=3):  # noqa: SIM117 - Preserve Gradio layout hierarchy.
@@ -513,7 +513,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                     value=0,
                                     precision=0,
                                     minimum=0,
-                                    label="Maximum chunks (0 processes the complete file)",
+                                    label="Maximum windows/chunks (0 processes the complete file)",
                                 )
                                 bounded_file_run = gr.Button(
                                     "Process long video safely", variant="primary"
@@ -540,20 +540,30 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                     bounded_stop = gr.Button("Stop safely", variant="stop")
                     with gr.Column(scale=2, elem_classes="step-card"):
                         gr.Markdown("### Fixed VRAM limits")
+                        bounded_engine = gr.Radio(
+                            choices=[
+                                ("Continuous native SAM 3.1 (recommended)", "continuous"),
+                                ("Isolated chunks + ID stitching (fallback)", "chunked"),
+                            ],
+                            value="continuous",
+                            label="Tracking engine",
+                            info="Continuous loads SAM once and preserves its tracker state. The fallback restarts SAM for every clip.",
+                        )
                         bounded_chunk_frames = gr.Slider(
                             minimum=30,
                             maximum=300,
                             value=int(bounded_defaults.get("chunk_frames", 60)),
                             step=1,
-                            label="Frames per SAM session",
-                            info="Start at 60. Increase only after checking measured peak VRAM.",
+                            label="Frames per progress window",
+                            info="Continuous mode does not reset at this boundary. In fallback mode this is the clip size.",
                         )
                         bounded_overlap_frames = gr.Slider(
                             minimum=0,
                             maximum=30,
                             value=int(bounded_defaults.get("overlap_frames", 8)),
                             step=1,
-                            label="Overlap frames for identity handoff",
+                            label="Fallback overlap frames",
+                            info="Used only by the isolated-chunk fallback; continuous mode needs no overlap handoff.",
                         )
                         bounded_batch_size = gr.Slider(
                             minimum=1,
@@ -568,7 +578,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             maximum=64,
                             value=int(bounded_defaults.get("max_active_objects", 16)),
                             step=1,
-                            label="Maximum active objects per chunk",
+                            label="Maximum active SAM objects",
                         )
                         bounded_threshold = gr.Slider(
                             minimum=0.05,
@@ -578,8 +588,8 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             label="Mask confidence threshold",
                         )
                         gr.Markdown(
-                            "RTSP keeps at most two captured chunks waiting. If SAM is slower than the camera, "
-                            "old pending chunks are dropped instead of building an unlimited queue."
+                            "RTSP uses a bounded live-frame queue. If SAM is slower than the camera, old waiting "
+                            "frames are dropped instead of allowing RAM and latency to grow without limit."
                         )
                 bounded_summary = gr.Markdown(
                     "Choose a long file or RTSP feed to begin.", elem_classes="result-card"
@@ -602,6 +612,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         bounded_max_objects,
                         bounded_threshold,
                         bounded_max_chunks,
+                        bounded_engine,
                     ],
                     [
                         bounded_summary,
@@ -622,6 +633,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         bounded_max_objects,
                         bounded_threshold,
                         rtsp_maximum_minutes,
+                        bounded_engine,
                     ],
                     [
                         bounded_summary,

@@ -69,8 +69,8 @@ The browser exposes:
 - a persistent official SAM 3.1 session panel exposing start, add/refine, propagate, remove, reset, cancel, and close operations;
 - SAM 3.1 Object Multiplex capacity, offload, threshold, and propagation controls;
 - official video memory profiles plus the existing quantized Q8 text/video tracker;
-- bounded-memory long-file processing with isolated CUDA workers, overlap-based global IDs, and incremental outputs;
-- RTSP surveillance ingestion with reconnects, UTC frame timestamps, a two-chunk bounded queue, and safe stop control;
+- continuous rolling-state SAM 3.1 for long files and RTSP, with one native ID space, bounded history, incremental outputs, and no cross-window stitching;
+- an isolated-chunk fallback with overlap-based global IDs, plus RTSP reconnects, bounded frame queues, UTC timestamps, and safe stop control;
 - per-image comparison of YOLO, RF-DETR, and either SAM backend, with a shared target filter for comparable output;
 - structured JSON, individual PNG masks, annotated images/video, and downloadable result archives;
 - model status and resumable downloads.
@@ -152,14 +152,15 @@ an otherwise free GPU. Add `--offload-video-to-cpu` for long videos. Select
 See [QUANTIZED_VIDEO_RESEARCH.md](QUANTIZED_VIDEO_RESEARCH.md) for the audited
 model choices and limitations.
 
-Very long files must use the bounded path instead of whole-video mode:
+Very long files should use the continuous rolling-state path instead of the
+ordinary whole-video loader:
 
 ```bash
 .venv/bin/model-lab long-video \
   --input /data/very-long-video.mp4 \
   --text "vehicle" \
+  --engine continuous \
   --chunk-frames 60 \
-  --overlap-frames 8 \
   --grounding-batch-size 1 \
   --max-active-objects 16
 ```
@@ -170,12 +171,14 @@ For a server-reachable RTSP camera:
 .venv/bin/model-lab rtsp \
   --url "rtsp://USER:PASSWORD@CAMERA/stream" \
   --text "person" \
+  --engine continuous \
   --maximum-minutes 10
 ```
 
-Both commands write incremental segments and JSONL instead of assembling one
-unbounded result in memory. Each chunk runs in an isolated CUDA process, so
-process exit releases all per-chunk VRAM. See
+Both commands load SAM 3.1 once, preserve the same tracker state and native
+object IDs, decode frames lazily, prune only state outside SAM's temporal
+attention horizon, write JSONL/masks incrementally, and produce one final MP4.
+Use `--engine chunked` only as the process-isolated reset/stitch fallback. See
 [LONG_VIDEO_AND_RTSP.md](LONG_VIDEO_AND_RTSP.md) before an unattended run.
 
 Multi-object visual tracking with a later correction:
@@ -217,6 +220,7 @@ model_comparison_lab/
 │   ├── rendering.py                  # overlays and annotated MP4
 │   ├── bounded_video.py              # long-file/RTSP chunking and ID handoff
 │   ├── bounded_worker.py             # isolated per-chunk CUDA process
+│   ├── continuous_video.py           # persistent rolling SAM 3.1 + identity archive
 │   ├── doctor.py                     # server diagnostics
 │   └── cli.py                        # `model-lab` command
 ├── tests/                            # tests that do not need model weights

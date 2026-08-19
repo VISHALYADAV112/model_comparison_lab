@@ -80,27 +80,32 @@ free high-memory GPU.
 ## Tab 5: long video and RTSP surveillance
 
 Use this tab instead of whole-video mode for a very long recording or camera
-feed. Both paths process fixed overlapping chunks, save results incrementally,
-and run every chunk in an isolated CUDA worker. Worker exit is the hard VRAM
-cleanup boundary.
+feed. Leave **Tracking engine** on **Continuous native SAM 3.1**. It loads the
+model once, retains one native tracker and ID space, and releases decoded
+frames and obsolete temporal state continuously. A progress-window boundary
+does not reset tracking and requires no ID stitching.
 
-Start with 60 frames, 8 overlap frames, grounding batch 1, and 16 active
-objects. For a long file, use one maximum chunk as a smoke test before changing
-the value to `0`. For RTSP, use a short maximum duration first; `0` runs until
-**Stop safely** is selected.
+Start with a 60-frame progress window, grounding batch 1, and 16 active
+objects. For a long file, use one maximum window as a smoke test before
+changing the value to `0`. For RTSP, use a short maximum duration first; `0`
+runs until **Stop safely** is selected.
 
-The latest annotated segment replaces the previous preview after every chunk.
-`index.json` contains current totals, `frames.jsonl` is written one unique
-frame at a time, and `chunks.jsonl` inside the output directory contains peak
-CUDA measurements.
+The completed result is one annotated MP4. `index.json` contains current totals
+and CUDA measurements, while `frames.jsonl` and masks are committed one frame
+at a time. `track_identities.sqlite3` stores the best crop and first/last frame
+for each SAM track so it can be reviewed or linked to a future ReID system.
 
-The RTSP connection originates from the server. Its queue holds at most two
-pending chunks. When inference is slower than capture, old pending chunks are
-dropped deliberately and the dashboard reports the count. Camera credentials
-and query parameters are redacted from stored metadata.
+The RTSP connection originates from the server. Its waiting-frame queue is
+bounded. When inference is slower than capture, old waiting frames are dropped
+deliberately and the dashboard reports the count. Camera credentials and query
+parameters are redacted from stored metadata.
+
+Select **Isolated chunks + ID stitching** only as a fallback. It gives a hard
+CUDA cleanup boundary after each clip, but resets SAM and approximately joins
+IDs using overlap IoU.
 
 Read [LONG_VIDEO_AND_RTSP.md](LONG_VIDEO_AND_RTSP.md) for output layout,
-identity-handoff limits, reconnect behavior, and CLI examples.
+identity limits, reconnect behavior, and CLI examples.
 
 ## Tab 6: live video correction
 

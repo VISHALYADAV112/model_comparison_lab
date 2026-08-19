@@ -40,6 +40,38 @@ Primary sources:
 - <https://github.com/facebookresearch/sam3>
 - <https://github.com/facebookresearch/sam3/blob/main/RELEASE_SAM3p1.md>
 
+## Long-video and streaming decision
+
+The default duration-independent engine is one persistent rolling SAM 3.1
+session, not reset-per-clip tracking. The pinned source already limits native
+attention to seven mask-memory positions, four conditioning frames, and sixteen
+object pointers. It also contains a production batching class that preserves
+hot-start/generator state across smaller propagation calls. The lab supplies
+the missing public runtime pieces: lazy sequential decode, compact global-frame
+mapping, sparse per-frame bookkeeping, conservative state pruning, incremental
+output, and a bounded RTSP frame queue.
+
+Hugging Face exposes a supported sequential `init_video_session` workflow for
+base SAM 3, confirming the persistent-session pattern. Its documentation also
+warns that zero-lookahead streaming disables future-frame hot-start heuristics
+and can increase false positives or duplicate tracks. The lab therefore keeps
+SAM 3.1's 15-frame hot-start state across rolling windows. RTSP has a small
+bounded delay; removing that delay would not be equivalent to offline
+processing.
+
+Primary sources:
+
+- <https://huggingface.co/docs/transformers/model_doc/sam3_video>
+- <https://github.com/facebookresearch/sam3/issues/481>
+- <https://github.com/facebookresearch/sam3/issues/514>
+
+A database containing only numeric SAM IDs cannot recognize a person after a
+track has ended. Release 0.5.0 archives each track's best crop and reserves
+fields for a verified identity and embedding. Human review can label those
+records. Automatic cross-visit matching still requires a separately evaluated
+face or person-ReID embedding model, thresholds, camera-domain validation, and
+appropriate privacy/access controls.
+
 ## Weight-access finding
 
 Meta's official checkpoints are gated. The user's existing Hugging Face login was verified with non-downloading dry runs against both `facebook/sam3` and `facebook/sam3.1`, so the server architecture now uses those official weights by default. A different SSH server must authenticate separately or receive an `HF_TOKEN`; this project never copies or prints the token.

@@ -62,3 +62,9 @@ rtsp_reconnect_attempts = 5
 rtsp_reconnect_delay_seconds = 2
 # Kill a stuck isolated CUDA worker so an unattended stream cannot hold VRAM forever.
 worker_timeout_seconds = 1800
+# Continuous native SAM 3.1 retains more than its 15-frame object-pointer
+# horizon, and enough decoded originals for hot-start + batched post-processing.
+state_history_frames = 32
+frame_buffer_frames = 96
+rtsp_frame_queue_capacity = 64
+progress_every_frames = 25
