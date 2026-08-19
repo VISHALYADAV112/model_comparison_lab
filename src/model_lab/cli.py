@@ -114,7 +114,14 @@ def main(argv: list[str] | None = None) -> None:
             ready = all(item["ready"] for item in report["models"])
             packages = all(report["packages"].values())
             commands = report["commands"]
-            if not ready or not packages or not commands["cmake"] or not commands["ffmpeg"] or not report["gpu"]:
+            if (
+                not ready
+                or not packages
+                or not commands["cmake"]
+                or not commands["ffmpeg"]
+                or not commands["ffprobe"]
+                or not report["gpu"]
+            ):
                 raise SystemExit(2)
         return
     if args.command == "compare-image":

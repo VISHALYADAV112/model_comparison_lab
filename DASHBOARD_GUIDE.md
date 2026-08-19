@@ -33,13 +33,16 @@ deliberately want to inspect every known class.
    - **Official minimum VRAM** uses one grounding frame at a time.
    - **Quantized Q8** uses base SAM 3's lightweight memory-bank tracker.
    - **Official maximum speed** requires a mostly free GPU.
-4. Start with 30–60 frames.
+4. Choose **Whole uploaded video** for a complete result, or first run a
+   60/300-frame test to check the prompt and memory profile.
 5. Select **Track through video**.
 
-The output is an annotated MP4. The ZIP contains every mask plus the manifest.
-After a short test works, increase the frame limit or use the advanced video
-tab. A positive frame limit is the exact maximum number of unique output
-frames; `0` in the advanced tabs means process the full propagation range.
+The output is a browser-compatible H.264 annotated MP4. The ZIP contains every
+mask plus the manifest. A 60-frame result is only two seconds at 30 FPS; this
+was the cause of earlier short outputs. Choose **Whole uploaded video** to
+process the entire input. In the advanced tab, a positive frame limit
+is the exact maximum number of unique output frames and `0` means the full
+propagation range.
 The quantized option is not SAM 3.1 and cannot be used to claim Object
 Multiplex quality or speed.
 

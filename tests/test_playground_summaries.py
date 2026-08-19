@@ -7,6 +7,7 @@ from model_lab.playground.service import (
     PlaygroundService,
     _records,
     comparison_summary,
+    quick_video_frame_limit,
     video_summary,
 )
 
@@ -58,6 +59,27 @@ def test_video_summary_counts_frames_objects_and_masks() -> None:
     assert "2 unique objects" in summary
     assert "3 frame-level masks" in summary
     assert "2.50 seconds" in summary
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [("all", 0), ("first_60", 60), ("first_300", 300), (42, 42)],
+)
+def test_quick_video_frame_limit(selection: str | int, expected: int) -> None:
+    assert quick_video_frame_limit(selection) == expected
+
+
+def test_video_summary_explains_a_short_frame_limited_result() -> None:
+    payload = {
+        "fps": 30,
+        "source_frame_count": 780,
+        "requested_max_frames": 60,
+        "frames": [{"detections": []} for _ in range(60)],
+    }
+    summary = video_summary(payload)
+    assert "2.0 seconds" in summary
+    assert "shorter than the source" in summary
+    assert "Whole uploaded video" in summary
 
 
 @pytest.mark.parametrize(

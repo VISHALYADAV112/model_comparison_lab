@@ -59,7 +59,7 @@ CAPABILITIES = """
 | **YOLO26-L** | Fast detection of familiar classes such as people, cars, animals and aircraft | Closed class list; boxes rather than precise masks |
 | **RF-DETR Large** | Transformer detector for familiar classes, often stronger on difficult objects | Closed class list; boxes rather than prompt-driven masks |
 | **Official SAM 3** | Find a described concept and return precise object masks | Needs a useful prompt and the most GPU memory |
-| **Official SAM 3.1** | Discover and track a described concept through video | Video processing can take time; start with 30–60 frames |
+| **Official SAM 3.1** | Discover and track a described concept through video | Video processing can take time; use the 60-frame quick test before a full run |
 | **SAM 3 Q8** | Smaller community fallback for memory/quality comparison | Quantized base SAM 3, not SAM 3.1 Object Multiplex |
 
 The dashboard intentionally excludes SAM 3 Agent because that adds a general multimodal language model. This lab focuses on native detection, segmentation and tracking.
@@ -229,14 +229,19 @@ def create_app(config: LabConfig) -> gr.Blocks:
                             label="Tracking engine and memory profile",
                             info="Use minimum VRAM on a shared GPU; maximum speed needs most of the L40S.",
                         )
-                        gr.Markdown("### Step 3 — Keep the first test small")
-                        quick_max_frames = gr.Slider(
-                            minimum=10,
-                            maximum=int(config.raw["playground"]["max_video_frames"]),
-                            value=60,
-                            step=10,
-                            label="Maximum frames to process",
-                            info="This is the number of output frames; start with 30–60.",
+                        gr.Markdown("### Step 3 — Choose how much video to process")
+                        quick_frame_range = gr.Radio(
+                            choices=[
+                                ("Whole uploaded video", "all"),
+                                ("Quick test — first 60 frames", "first_60"),
+                                ("Longer test — first 300 frames", "first_300"),
+                            ],
+                            value="all",
+                            label="Output length",
+                            info=(
+                                "60 frames is only 2 seconds for a 30 FPS video. Whole-video runs take longer; "
+                                "use minimum VRAM or Q8 on a shared GPU."
+                            ),
                         )
                         with gr.Accordion("Optional quality setting", open=False):
                             quick_video_threshold = gr.Slider(
@@ -264,7 +269,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         quick_video_input,
                         quick_video_target,
                         quick_video_engine,
-                        quick_max_frames,
+                        quick_frame_range,
                         quick_video_threshold,
                     ],
                     [

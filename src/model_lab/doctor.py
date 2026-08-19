@@ -35,7 +35,10 @@ def _package_report() -> tuple[dict[str, bool], dict[str, str]]:
 
 
 def doctor_report(config: LabConfig) -> dict:
-    commands = {name: shutil.which(name) for name in ("git", "cmake", "ffmpeg", "nvidia-smi", "nvcc")}
+    commands = {
+        name: shutil.which(name)
+        for name in ("git", "cmake", "ffmpeg", "ffprobe", "nvidia-smi", "nvcc")
+    }
     cuda = None
     if commands["nvidia-smi"]:
         check = subprocess.run(

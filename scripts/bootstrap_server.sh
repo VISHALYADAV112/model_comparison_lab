@@ -9,7 +9,7 @@ if ! command -v "${PYTHON_COMMAND}" >/dev/null; then
   echo "Python 3.12 is required for official SAM 3. Install it, then rerun." >&2
   exit 2
 fi
-for command in git cmake ffmpeg; do
+for command in git cmake ffmpeg ffprobe; do
   if ! command -v "${command}" >/dev/null; then
     echo "Missing ${command}. On Ubuntu: sudo apt install -y git cmake build-essential ffmpeg" >&2
     exit 2

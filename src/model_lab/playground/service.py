@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,11 +85,34 @@ def video_summary(payload: dict) -> str:
     masks = sum(len(frame.get("detections", [])) for frame in frames)
     elapsed = payload.get("elapsed_seconds")
     elapsed_text = f" in {float(elapsed):.2f} seconds" if elapsed is not None else ""
+    fps = float(payload.get("fps") or 0)
+    duration = len(frames) / fps if fps > 0 else 0
+    source_frames = int(payload.get("source_frame_count") or 0)
+    frame_limit = int(payload.get("requested_max_frames") or 0)
+    coverage = f" The annotated result is about **{duration:.1f} seconds** long." if duration else ""
+    if frame_limit and source_frames > len(frames):
+        coverage += (
+            f" It is shorter than the source because the selected limit was **{frame_limit} frames**; "
+            "choose **Whole uploaded video** to process all frames."
+        )
+    elif source_frames and len(frames) >= source_frames:
+        coverage += " The whole uploaded video was processed."
     return (
         "### Video tracking finished\n"
         f"Processed **{len(frames)} frames**, tracked **{len(object_ids)} unique objects**, "
-        f"and produced **{masks} frame-level masks**{elapsed_text}."
+        f"and produced **{masks} frame-level masks**{elapsed_text}.{coverage}\n\n"
+        "The H.264 video below should play in the browser. The ZIP contains the masks and exact JSON manifest."
     )
+
+
+def quick_video_frame_limit(selection: str | float) -> int:
+    choices = {"all": 0, "first_60": 60, "first_300": 300}
+    if isinstance(selection, str) and selection in choices:
+        return choices[selection]
+    value = int(selection)
+    if value < 0:
+        raise ValueError("Maximum frames cannot be negative")
+    return value
 
 
 class PlaygroundService:
@@ -202,6 +226,17 @@ class PlaygroundService:
         else:
             raise ValueError(f"Unknown backend {backend!r}")
         manifest, payload = adapter.run_video(video_path, output, **common)
+        try:
+            import cv2
+
+            capture = cv2.VideoCapture(str(video_path))
+            if capture.isOpened():
+                payload["source_frame_count"] = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            capture.release()
+        except ImportError:
+            pass
+        payload["requested_max_frames"] = int(max_frames)
+        manifest.write_text(json.dumps(payload, indent=2))
         annotated = render_video_manifest(video_path, manifest, output / "annotated.mp4")
         archive = shutil.make_archive(str(output) + "_results", "zip", root_dir=output)
         return str(annotated), str(manifest), archive, payload
@@ -269,7 +304,7 @@ class PlaygroundService:
         video: str,
         target: str,
         engine: str,
-        max_frames: int,
+        frame_range: str | float,
         threshold: float,
     ) -> tuple[str, str, str, str, dict]:
         if not target.strip():
@@ -283,6 +318,7 @@ class PlaygroundService:
         if engine not in profiles:
             raise ValueError(f"Unknown video engine/profile {engine!r}")
         backend, offload_video, grounding_batch_size = profiles[engine]
+        max_frames = quick_video_frame_limit(frame_range)
         annotated, manifest, archive, payload = self.run_video(
             backend,
             video,

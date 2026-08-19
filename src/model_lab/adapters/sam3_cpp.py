@@ -72,6 +72,14 @@ class Sam3CppAdapter:
         for value in values:
             command.extend([flag, ",".join(f"{field:g}" for field in value)])
 
+    @staticmethod
+    def _run_bridge(command: list[str]) -> None:
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(f"SAM 3 Q8 bridge failed: {detail}") from exc
+
     def run_image(
         self,
         image: Path,
@@ -111,7 +119,7 @@ class Sam3CppAdapter:
                 str(nms_threshold if nms_threshold is not None else sam["nms_threshold"]),
             ]
         )
-        subprocess.run(command, check=True)
+        self._run_bridge(command)
         manifest = output_dir / "manifest.json"
         return manifest, json.loads(manifest.read_text())
 
@@ -171,7 +179,7 @@ class Sam3CppAdapter:
                 str(nms_threshold if nms_threshold is not None else sam["nms_threshold"]),
             ]
         )
-        subprocess.run(command, check=True)
+        self._run_bridge(command)
         manifest = output_dir / "manifest.json"
         return manifest, json.loads(manifest.read_text())
 

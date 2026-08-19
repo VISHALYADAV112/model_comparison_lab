@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from .contracts import ModelResult, resolve_mask_path
-
 
 COLORS = [
     (255, 80, 80),
@@ -85,6 +85,51 @@ def manifest_mask_files(manifest_path: Path) -> list[Path]:
     return files
 
 
+def _encode_browser_video(raw_video: Path, source_video: Path, output_path: Path) -> None:
+    """Convert OpenCV's intermediate into an H.264 MP4 Gradio can play."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError(
+            "Cannot create a browser-compatible result because ffmpeg is not on PATH. "
+            "Activate model-lab-bootstrap and restart the dashboard."
+        )
+    command = [
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(raw_video),
+        "-i",
+        str(source_video),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        "-shortest",
+        str(output_path),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        message = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise RuntimeError(f"FFmpeg could not encode the dashboard video: {message}") from exc
+    finally:
+        raw_video.unlink(missing_ok=True)
+
+
 def render_video_manifest(video_path: Path, manifest_path: Path, output_path: Path) -> Path:
     try:
         import cv2
@@ -99,7 +144,11 @@ def render_video_manifest(video_path: Path, manifest_path: Path, output_path: Pa
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = capture.get(cv2.CAP_PROP_FPS) or float(payload.get("fps", 25.0))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    raw_output = output_path.with_name(f"{output_path.stem}.opencv.mp4")
+    writer = cv2.VideoWriter(str(raw_output), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        capture.release()
+        raise RuntimeError("OpenCV could not create the annotated video")
     frame_index = 0
     last_index = max(indexed) if indexed else -1
     try:
@@ -139,5 +188,5 @@ def render_video_manifest(video_path: Path, manifest_path: Path, output_path: Pa
     finally:
         capture.release()
         writer.release()
+    _encode_browser_video(raw_output, video_path, output_path)
     return output_path
-

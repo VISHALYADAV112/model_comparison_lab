@@ -2,7 +2,7 @@
 
 ## 1. Server requirements
 
-Use Linux with an NVIDIA CUDA-compatible GPU, current NVIDIA driver, Python 3.12, `git`, `cmake`, a C++ compiler, and `ffmpeg`. Meta's current official prerequisites call for PyTorch 2.7 or newer and CUDA 12.6 or newer. The bootstrap follows Meta's current example and installs PyTorch 2.10 from the CUDA 12.8 wheel index.
+Use Linux with an NVIDIA CUDA-compatible GPU, current NVIDIA driver, Python 3.12, `git`, `cmake`, a C++ compiler, `ffmpeg`, and `ffprobe`. Meta's current official prerequisites call for PyTorch 2.7 or newer and CUDA 12.6 or newer. The bootstrap follows Meta's current example and installs PyTorch 2.10 from the CUDA 12.8 wheel index.
 
 Example Ubuntu system packages:
 
@@ -131,3 +131,15 @@ Browser cannot connect:
 - For SSH tunnel, bind the server to `127.0.0.1` and browse to the laptop's `127.0.0.1`, not the server IP.
 - Never enable a public Gradio share link for private images/video.
 
+Q8 reports `Failed to inspect video`:
+
+- The bridge could not find `ffmpeg`/`ffprobe`. The launcher now searches the
+  existing `model-lab-bootstrap` Miniforge environment automatically.
+- If the tools were installed elsewhere, activate that Conda environment
+  before launching and confirm `which ffmpeg` and `which ffprobe` both work.
+
+Annotated video downloads but does not play in the dashboard:
+
+- Version 0.3.1 encodes the result as H.264/yuv420p instead of OpenCV `mp4v`.
+- Restart the dashboard after pulling the update; an already-running Python
+  process continues to use the old renderer.

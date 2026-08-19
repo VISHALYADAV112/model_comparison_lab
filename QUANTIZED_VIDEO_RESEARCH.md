@@ -56,6 +56,33 @@ Batch size controls a real tradeoff: smaller batches lower peak VRAM but reduce
 vision-encoder throughput. CPU frame offload saves substantial VRAM on long
 videos but adds host-to-device transfers.
 
+## Can we quantize SAM 3.1 ourselves?
+
+Yes, but that is a separate engineering and evaluation project, not a direct
+checkpoint conversion. The most practical first experiment is selective
+post-training quantization: keep convolutions, normalization, geometry, mask
+heads, and other sensitive layers in BF16/FP16 while applying INT8 weight-only
+or W8A8 quantization to suitable transformer `Linear` layers. TorchAO exposes
+`quantize_`, per-module filtering, INT8 weight-only, INT8 dynamic activation,
+INT4 weight-only, and other configurations.
+
+For this lab, a candidate is acceptable only if it:
+
+1. loads in the headless official-style Python runtime rather than requiring a
+   ComfyUI graph;
+2. runs the complete SAM 3.1 Object Multiplex video path;
+3. reduces measured peak VRAM, not only checkpoint size;
+4. improves or preserves end-to-end speed on the L40S;
+5. passes long-range evaluations for tiny-object recall, mask IoU, identity
+   stability, occlusion recovery, and prompt consistency.
+
+Start with INT8. Move to selective INT4 only if INT8 is stable. If
+post-training quantization damages distant-object quality, the next step is a
+representative calibration set or quantization-aware fine-tuning. Weight-only
+quantization cannot eliminate memory used by decoded frames, activations,
+temporal state, masks, or unrelated GPU processes, so it is not by itself a
+guaranteed cure for the current full-model OOM.
+
 ## Best future low-memory architecture
 
 For maximum speed with acceptable quality, benchmark a cascade rather than a
