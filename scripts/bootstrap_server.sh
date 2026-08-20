@@ -22,7 +22,7 @@ PYTHON_BIN="${LAB_ROOT}/.venv/bin/python"
 
 # Version follows Meta's current SAM 3.1 installation guide (CUDA 12.8 wheel).
 "${PYTHON_BIN}" -m pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
-"${PYTHON_BIN}" -m pip install -e "${LAB_ROOT}[all]"
+"${PYTHON_BIN}" -m pip install -e "${LAB_ROOT}[all,root]"
 
 MODEL_LAB_PYTHON="${PYTHON_BIN}" "${LAB_ROOT}/scripts/install_meta_sam3.sh"
 "${PYTHON_BIN}" -m pip check
