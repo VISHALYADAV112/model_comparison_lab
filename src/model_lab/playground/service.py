@@ -19,6 +19,7 @@ from ..bounded_video import (
     redact_rtsp_url,
     validate_rtsp_url,
 )
+from ..cascade import compare_image_cascade
 from ..compare import compare_image
 from ..config import LabConfig
 from ..continuous_video import (
@@ -645,18 +646,30 @@ class PlaygroundService:
         sam_text: str,
         sam_backend: str,
         detector_target: str | None = None,
+        cascade: bool = False,
     ) -> tuple[list[str], str, dict]:
         image_path = _path(image)
         output = self._job("comparison")
-        payload = compare_image(
-            self.config,
-            image_path,
-            output,
-            models=models,
-            sam_text=sam_text,
-            sam_backend=sam_backend,
-            detector_target=detector_target,
-        )
+        if cascade:
+            payload = compare_image_cascade(
+                self.config,
+                image_path,
+                output,
+                proposal_models=[name for name in models if name != "sam3"],
+                sam_text=sam_text,
+                sam_backend=sam_backend,
+                detector_target=detector_target,
+            )
+        else:
+            payload = compare_image(
+                self.config,
+                image_path,
+                output,
+                models=models,
+                sam_text=sam_text,
+                sam_backend=sam_backend,
+                detector_target=detector_target,
+            )
         images = [str(path) for path in sorted(output.glob("*_annotated.jpg"))]
         return images, str(output / "comparison.json"), payload
 
@@ -667,6 +680,7 @@ class PlaygroundService:
         models: list[str],
         sam_backend: str,
         filter_detectors: bool = True,
+        cascade: bool = False,
     ) -> tuple[str, list[tuple[str, str]], str, dict]:
         if not models:
             raise ValueError("Select at least one model")
@@ -679,6 +693,7 @@ class PlaygroundService:
             target,
             sam_backend,
             detector_target=target if filter_detectors else None,
+            cascade=cascade,
         )
         captions = {
             "yolo": f"YOLO26-L — {target} only" if filter_detectors else "YOLO26-L — all detected classes",
@@ -686,6 +701,7 @@ class PlaygroundService:
                 f"RF-DETR Large — {target} only" if filter_detectors else "RF-DETR Large — all detected classes"
             ),
             "sam3": f"SAM 3 segmentation: {target}",
+            "cascade": f"Cascade (tiled + ROI-verified): {target}",
         }
         gallery = [
             (

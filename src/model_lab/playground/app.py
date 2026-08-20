@@ -162,6 +162,14 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                 value="official",
                                 label="SAM runtime",
                             )
+                        quick_cascade = gr.Checkbox(
+                            value=False,
+                            label="Cascade mode: tile detectors + verify SAM on padded crops",
+                            info=(
+                                "Preserves source-resolution detail for small/distant objects instead of resizing "
+                                "the whole frame once. Slower: runs each detector per tile and SAM per candidate."
+                            ),
+                        )
                         gr.Markdown("### Step 4 — Run")
                         quick_run = gr.Button("Run image comparison", variant="primary", elem_id="quick-run")
 
@@ -186,6 +194,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         quick_models,
                         quick_backend,
                         quick_filter,
+                        quick_cascade,
                     ],
                     [quick_summary, quick_gallery, quick_report, quick_json],
                 )

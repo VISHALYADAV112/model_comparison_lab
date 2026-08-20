@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .adapters.meta_sam3 import MetaSam3Adapter
 from .adapters.sam3_cpp import Sam3CppAdapter, parse_boxes, parse_points
+from .cascade import compare_image_cascade
 from .compare import compare_image
 from .config import DEFAULT_CONFIG, load_config
 from .doctor import doctor_report
@@ -58,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--models", default="yolo,rfdetr,sam3")
     compare.add_argument("--sam-text", default="object")
     compare.add_argument("--sam-backend", choices=("official", "q8"), default=None)
+    compare.add_argument(
+        "--cascade",
+        action="store_true",
+        help="Tile proposal detectors and verify SAM on padded ROI crops instead of the whole frame",
+    )
+    compare.add_argument("--detector-target", default=None, help="Cascade mode: closed-set label filter")
+    compare.add_argument("--tile-size", type=int, default=None, help="Cascade mode: proposal tile size")
+    compare.add_argument("--tile-overlap", type=float, default=None, help="Cascade mode: proposal tile overlap")
+    compare.add_argument("--roi-padding", type=float, default=None, help="Cascade mode: SAM verification crop padding")
 
     image = sub.add_parser("sam-image", help="Use every supported SAM 3 image prompt")
     image.add_argument("--input", required=True, type=Path)
@@ -155,14 +165,29 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "compare-image":
         names = [name.strip() for name in args.models.split(",") if name.strip()]
-        payload = compare_image(
-            config,
-            args.input,
-            args.output,
-            models=names,
-            sam_text=args.sam_text,
-            sam_backend=args.sam_backend,
-        )
+        if args.cascade:
+            payload = compare_image_cascade(
+                config,
+                args.input,
+                args.output,
+                proposal_models=[name for name in names if name != "sam3"],
+                sam_text=args.sam_text,
+                sam_backend=args.sam_backend,
+                tile_size=args.tile_size,
+                tile_overlap=args.tile_overlap,
+                roi_padding=args.roi_padding,
+                detector_target=args.detector_target,
+            )
+        else:
+            payload = compare_image(
+                config,
+                args.input,
+                args.output,
+                models=names,
+                sam_text=args.sam_text,
+                sam_backend=args.sam_backend,
+                detector_target=args.detector_target,
+            )
         print(json.dumps(payload, indent=2))
         return
     if args.command == "sam-image":

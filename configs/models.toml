@@ -45,6 +45,20 @@ max_num_objects = 64
 multiplex_count = 16
 use_flash_attention_3 = false
 
+[cascade]
+# Image cascade: tile -> YOLO/RF-DETR proposals -> fuse -> padded ROI crop -> SAM verify.
+# Ports long_range_vision's image pipeline so small/distant objects are not
+# erased by a single whole-frame resize before SAM ever sees them.
+tile_size = 1008
+tile_overlap = 0.2
+roi_padding = 2.0
+per_model_nms_iou = 0.45
+ensemble_iou = 0.5
+
+[cascade.weights]
+yolo = 1.0
+rfdetr = 1.0
+
 [playground]
 host = "127.0.0.1"
 port = 7860
