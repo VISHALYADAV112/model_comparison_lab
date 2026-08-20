@@ -178,6 +178,14 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                 "and reported separately, so you can compare the detectors in cascade mode."
                             ),
                         )
+                        quick_tile_sam = gr.Checkbox(
+                            value=False,
+                            label="Tile SAM 3 too (test baseline)",
+                            info=(
+                                "Also prompt SAM 3 directly on the tile grid, composited back to the full image. "
+                                "Useful to measure how much SAM's whole-frame resize loses on small objects."
+                            ),
+                        )
                         gr.Markdown("### Step 4 — Run")
                         quick_run = gr.Button("Run image comparison", variant="primary", elem_id="quick-run")
 
@@ -204,6 +212,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         quick_filter,
                         quick_cascade,
                         quick_fuse,
+                        quick_tile_sam,
                     ],
                     [quick_summary, quick_gallery, quick_report, quick_json],
                 )

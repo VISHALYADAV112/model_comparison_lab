@@ -74,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Cascade mode: verify each detector's tiles with SAM separately instead of fusing proposals",
     )
+    compare.add_argument(
+        "--tile-sam",
+        action="store_true",
+        help="Cascade mode: also prompt SAM 3 directly on the tile grid as a test baseline",
+    )
 
     image = sub.add_parser("sam-image", help="Use every supported SAM 3 image prompt")
     image.add_argument("--input", required=True, type=Path)
@@ -184,6 +189,7 @@ def main(argv: list[str] | None = None) -> None:
                 roi_padding=args.roi_padding,
                 detector_target=args.detector_target,
                 fuse_models=args.fuse_models,
+                tile_sam=args.tile_sam,
             )
         else:
             payload = compare_image(

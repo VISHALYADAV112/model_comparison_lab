@@ -159,6 +159,42 @@ def test_compare_image_cascade_rejects_unknown_proposal_model(tmp_path: Path) ->
         compare_image_cascade(config, image_path, tmp_path / "out", proposal_models=["not_a_model"])
 
 
+def test_compare_image_cascade_can_tile_sam_directly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image_path = tmp_path / "source.png"
+    Image.new("RGB", (200, 150), "gray").save(image_path)
+    output_dir = tmp_path / "out"
+
+    monkeypatch.setitem(cascade._PROPOSAL_ADAPTERS, "yolo", lambda config: FakeDetectorAdapter("yolo"))
+    monkeypatch.setitem(cascade._PROPOSAL_ADAPTERS, "rfdetr", lambda config: FakeDetectorAdapter("rfdetr"))
+    monkeypatch.setattr(cascade, "MetaSam3Adapter", lambda config: FakeSamAdapter())
+
+    config = LabConfig(root=tmp_path, raw={"sam3": {"backend": "official"}})
+
+    payload = compare_image_cascade(
+        config,
+        image_path,
+        output_dir,
+        proposal_models=["yolo", "rfdetr"],
+        sam_text="person",
+        tile_size=1008,
+        fuse_models=False,
+        tile_sam=True,
+    )
+
+    assert payload["tile_sam"] is True
+    assert payload["errors"] == {}
+    assert any(result["model"] == "cascade(sam3-official-tiled)" for result in payload["results"])
+    tiled = next(result for result in payload["results"] if result["model"] == "cascade(sam3-official-tiled)")
+    assert tiled["metadata"]["sam_mode"] == "tiled"
+    assert tiled["metadata"]["tile_count"] == 1
+    assert len(tiled["detections"]) == 1
+    assert (output_dir / "sam3_cascade_annotated.jpg").exists()
+    assert any((output_dir / "sam3_tiled_masks").glob("tile_000_*.png"))
+    assert not (output_dir / "_scratch").exists()
+
+
 def test_compare_image_cascade_without_fusion_reports_each_model_separately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

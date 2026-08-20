@@ -145,6 +145,63 @@ def _run_roi_verification(
     return detections, elapsed
 
 
+def _run_tiled_sam(
+    adapter: Any,
+    image: Image.Image,
+    sam_text: str,
+    output_dir: Path,
+    tile_size: int,
+    overlap: float,
+    nms_iou: float,
+) -> tuple[list[Detection], int, float]:
+    """Run SAM 3 directly on the tile grid, as a test baseline.
+
+    Detectors tile the frame while SAM normally only sees tight ROI crops. This
+    path prompts SAM on every tile so the loss from SAM's fixed whole-frame
+    resize can be measured against an untiled SAM baseline. Masks are composited
+    back onto a full-image canvas, mirroring _run_roi_verification.
+    """
+    tiles = generate_tiles(image.width, image.height, tile_size, overlap)
+    scratch_dir = output_dir / "_scratch" / "sam3_tiled"
+    mask_dir = output_dir / "sam3_tiled_masks"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    mask_dir.mkdir(parents=True, exist_ok=True)
+    detections: list[Detection] = []
+    started = perf_counter()
+    for tile_index, tile in enumerate(tiles):
+        crop = image.crop((tile.x1, tile.y1, tile.x2, tile.y2))
+        crop_path = scratch_dir / f"tile_{tile_index:03d}.png"
+        crop.save(crop_path)
+        tile_output = scratch_dir / f"tile_{tile_index:03d}_out"
+        try:
+            result = adapter.predict_text_image(crop_path, tile_output, sam_text)
+        finally:
+            crop_path.unlink(missing_ok=True)
+        manifest_path = Path(str(result.metadata.get("manifest", tile_output / "manifest.json")))
+        for detection_index, detection in enumerate(result.detections):
+            box = clip_box(translate_box(detection.box, tile.x1, tile.y1), image.width, image.height)
+            crop_mask = resolve_mask_path(manifest_path, detection.mask_path)
+            mask_name = None
+            if crop_mask and crop_mask.exists():
+                mask_name = f"tile_{tile_index:03d}_{detection_index:02d}.png"
+                _composite_mask(crop_mask, mask_dir / mask_name, tile.x1, tile.y1, image.width, image.height)
+            metadata = dict(detection.metadata)
+            metadata.update(source_model="sam3", tile_id=tile.tile_id)
+            detections.append(
+                Detection(
+                    box=box,
+                    score=detection.score,
+                    label=detection.label,
+                    mask_path=f"sam3_tiled_masks/{mask_name}" if mask_name else None,
+                    instance_id=detection.instance_id,
+                    metadata=metadata,
+                )
+            )
+        shutil.rmtree(tile_output, ignore_errors=True)
+    elapsed = perf_counter() - started
+    return non_max_suppression(detections, iou_threshold=nms_iou), len(tiles), elapsed
+
+
 def compare_image_cascade(
     config: LabConfig,
     image: Path,
@@ -160,6 +217,7 @@ def compare_image_cascade(
     ensemble_iou: float | None = None,
     detector_target: str | None = None,
     fuse_models: bool = True,
+    tile_sam: bool = False,
 ) -> dict:
     """Tile -> propose -> (fuse?) -> padded-ROI-crop -> SAM verify, on one full-resolution image.
 
@@ -171,7 +229,9 @@ def compare_image_cascade(
     With ``fuse_models=True`` the detectors' proposals are merged by weighted box
     fusion into one ensemble verified by SAM. With ``fuse_models=False`` each
     detector's own tiled proposals are verified and reported separately, so per-model
-    cascade behavior stays comparable without cross-model fusion.
+    cascade behavior stays comparable without cross-model fusion. ``tile_sam=True``
+    additionally prompts SAM 3 directly on the tile grid as a test baseline, so its
+    output can be compared against the whole-frame SAM result.
     """
     image_path = image.expanduser().resolve()
     if not image_path.is_file():
@@ -289,6 +349,31 @@ def compare_image_cascade(
             )
             results.append(result)
             render_result(image_path, result, output_dir / f"{name}_cascade_annotated.jpg")
+    if tile_sam:
+        try:
+            tiled_detections, tile_count, sam_tiled_elapsed = _run_tiled_sam(
+                sam_adapter, pil_image, sam_text, output_dir, tile_size, tile_overlap, per_model_nms_iou
+            )
+            timing["sam3_tiled"] = sam_tiled_elapsed
+        except Exception as exc:  # noqa: BLE001 - keep other results even if the SAM-tiled baseline fails
+            errors["sam3_tiled"] = f"{type(exc).__name__}: {exc}"
+        else:
+            tiled_result = ModelResult(
+                model=f"cascade(sam3-{selected_backend}-tiled)",
+                source=str(image_path),
+                width=pil_image.width,
+                height=pil_image.height,
+                elapsed_seconds=sam_tiled_elapsed,
+                detections=tiled_detections,
+                metadata={
+                    "sam_backend": selected_backend,
+                    "sam_mode": "tiled",
+                    "tile_size": tile_size,
+                    "tile_count": tile_count,
+                },
+            )
+            results.append(tiled_result)
+            render_result(image_path, tiled_result, output_dir / "sam3_cascade_annotated.jpg")
     del sam_adapter
     gc.collect()
     shutil.rmtree(output_dir / "_scratch", ignore_errors=True)
@@ -304,6 +389,7 @@ def compare_image_cascade(
         "tile_overlap": tile_overlap,
         "roi_padding": roi_padding,
         "fuse_models": fuse_models,
+        "tile_sam": tile_sam,
         "warning": (
             "Cascade mode preserves source-resolution detail through tiled proposal detection and "
             "padded ROI-crop SAM verification, mirroring the long_range_vision root image pipeline. "
