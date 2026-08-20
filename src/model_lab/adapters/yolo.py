@@ -25,9 +25,12 @@ class YoloAdapter(DetectorAdapter):
         self.model = YOLO(str(config.yolo_model))
 
     def predict_image(self, image: Path, output_dir: Path) -> ModelResult:
+        return self.predict_images([image], output_dir)[0]
+
+    def predict_images(self, images: list[Path], output_dir: Path) -> list[ModelResult]:
         settings = self.config.raw["yolo"]
         kwargs: dict[str, Any] = {
-            "source": str(image),
+            "source": [str(image) for image in images],
             "conf": float(settings["confidence"]),
             "imgsz": int(settings["image_size"]),
             "verbose": False,
@@ -35,32 +38,37 @@ class YoloAdapter(DetectorAdapter):
         if settings.get("device", "auto") != "auto":
             kwargs["device"] = settings["device"]
         start = perf_counter()
-        prediction = self.model.predict(**kwargs)[0]
+        predictions = self.model.predict(**kwargs)
         elapsed = perf_counter() - start
-        width, height = Image.open(image).size
-        detections: list[Detection] = []
-        if prediction.boxes is not None:
-            boxes = prediction.boxes.xyxy.detach().cpu().tolist()
-            scores = prediction.boxes.conf.detach().cpu().tolist()
-            classes = prediction.boxes.cls.detach().cpu().tolist()
-            names = prediction.names
-            for box, score, class_value in zip(boxes, scores, classes):
-                class_id = int(class_value)
-                detections.append(
-                    Detection(
-                        box=tuple(float(value) for value in box),
-                        score=float(score),
-                        label=str(names[class_id]),
-                        class_id=class_id,
+        results: list[ModelResult] = []
+        for image, prediction in zip(images, predictions):
+            width, height = Image.open(image).size
+            detections: list[Detection] = []
+            if prediction.boxes is not None:
+                boxes = prediction.boxes.xyxy.detach().cpu().tolist()
+                scores = prediction.boxes.conf.detach().cpu().tolist()
+                classes = prediction.boxes.cls.detach().cpu().tolist()
+                names = prediction.names
+                for box, score, class_value in zip(boxes, scores, classes):
+                    class_id = int(class_value)
+                    detections.append(
+                        Detection(
+                            box=tuple(float(value) for value in box),
+                            score=float(score),
+                            label=str(names[class_id]),
+                            class_id=class_id,
+                        )
                     )
+            results.append(
+                ModelResult(
+                    model=f"YOLO/{settings['checkpoint']}",
+                    source=str(image),
+                    width=width,
+                    height=height,
+                    elapsed_seconds=elapsed / max(1, len(images)),
+                    detections=detections,
+                    metadata={"task": "closed-set object detection", "image_size": settings["image_size"]},
                 )
-        return ModelResult(
-            model=f"YOLO/{settings['checkpoint']}",
-            source=str(image),
-            width=width,
-            height=height,
-            elapsed_seconds=elapsed,
-            detections=detections,
-            metadata={"task": "closed-set object detection", "image_size": settings["image_size"]},
-        )
+            )
+        return results
 

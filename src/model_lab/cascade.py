@@ -4,6 +4,7 @@ import gc
 import json
 import shutil
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -38,16 +39,20 @@ def _run_tiled_proposals(
     """
     tiles = generate_tiles(image.width, image.height, tile_size, overlap)
     scratch_dir.mkdir(parents=True, exist_ok=True)
-    detections: list[Detection] = []
-    started = perf_counter()
+    tile_paths: list[Path] = []
     for tile in tiles:
         crop = image.crop((tile.x1, tile.y1, tile.x2, tile.y2))
         tile_path = scratch_dir / f"{tile.tile_id}.png"
         crop.save(tile_path)
-        try:
-            result = adapter.predict_image(tile_path, scratch_dir)
-        finally:
+        tile_paths.append(tile_path)
+    started = perf_counter()
+    try:
+        results = adapter.predict_images(tile_paths, scratch_dir)
+    finally:
+        for tile_path in tile_paths:
             tile_path.unlink(missing_ok=True)
+    detections: list[Detection] = []
+    for tile, result in zip(tiles, results):
         for detection in result.detections:
             box = clip_box(translate_box(detection.box, tile.x1, tile.y1), image.width, image.height)
             metadata = dict(detection.metadata)
@@ -257,9 +262,9 @@ def compare_image_cascade(
     proposal_results: dict[str, list[Detection]] = {}
     errors: dict[str, str] = {}
 
-    for name in requested:
+    def _run_proposal_model(name: str) -> tuple[str, list[Detection], float]:
+        adapter = _PROPOSAL_ADAPTERS[name](config)
         try:
-            adapter = _PROPOSAL_ADAPTERS[name](config)
             detections, elapsed = _run_tiled_proposals(
                 adapter,
                 name,
@@ -279,10 +284,27 @@ def compare_image_cascade(
                     detections=detections,
                 )
                 detections = filter_detector_result(wrapped, detector_target).detections
-            proposal_results[name] = detections
-            timing[name] = elapsed
+            return name, detections, elapsed
+        finally:
             del adapter
             gc.collect()
+
+    if len(requested) > 1:
+        with ThreadPoolExecutor(max_workers=len(requested)) as pool:
+            futures = {pool.submit(_run_proposal_model, name): name for name in requested}
+            for future, name in futures.items():
+                try:
+                    model_name, detections, elapsed = future.result()
+                    proposal_results[model_name] = detections
+                    timing[model_name] = elapsed
+                except Exception as exc:  # noqa: BLE001 - preserve other model results in a benchmark run
+                    errors[name] = f"{type(exc).__name__}: {exc}"
+    else:
+        name = requested[0]
+        try:
+            model_name, detections, elapsed = _run_proposal_model(name)
+            proposal_results[model_name] = detections
+            timing[model_name] = elapsed
         except Exception as exc:  # noqa: BLE001 - preserve other model results in a benchmark run
             errors[name] = f"{type(exc).__name__}: {exc}"
 

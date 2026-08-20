@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from model_lab import cascade
+from model_lab.adapters.base import DetectorAdapter
 from model_lab.cascade import (
     _composite_mask,
     _run_roi_verification,
@@ -18,7 +19,7 @@ from model_lab.config import LabConfig
 from model_lab.contracts import Detection, ModelResult
 
 
-class FakeDetectorAdapter:
+class FakeDetectorAdapter(DetectorAdapter):
     """Stands in for YoloAdapter/RFDetrAdapter: one fixed box near a crop's corner."""
 
     def __init__(self, label: str) -> None:
@@ -81,6 +82,29 @@ def test_run_tiled_proposals_maps_tile_local_boxes_to_image_coordinates(tmp_path
     assert len(adapter.calls) >= 2  # width 200 needs more than one 100px tile
     assert any(det.box[0] > 50 for det in detections)
     assert all(det.metadata["source_model"] == "fake" for det in detections)
+
+
+class RecordingBatchAdapter(FakeDetectorAdapter):
+    """Counts how many predict_images calls the cascade makes."""
+
+    def predict_images(self, images: list[Path], output_dir: Path) -> list[ModelResult]:
+        self.batch_calls = getattr(self, "batch_calls", 0) + 1
+        return [self.predict_image(image, output_dir) for image in images]
+
+
+def test_run_tiled_proposals_batches_all_tiles_into_one_call(tmp_path: Path) -> None:
+    image = Image.new("RGB", (200, 100), "gray")
+    adapter = RecordingBatchAdapter("fake")
+    scratch = tmp_path / "scratch"
+
+    _, elapsed = _run_tiled_proposals(
+        adapter, "fake", image, scratch, tile_size=100, overlap=0.2, nms_iou=0.45
+    )
+
+    assert elapsed >= 0
+    assert adapter.batch_calls == 1
+    assert len(adapter.calls) >= 2
+    assert list(scratch.iterdir()) == []  # every tile crop was deleted after the batch call
 
 
 def test_composite_mask_places_crop_at_the_correct_offset(tmp_path: Path) -> None:
