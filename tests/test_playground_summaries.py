@@ -132,3 +132,18 @@ def test_quick_video_maps_memory_profiles(
     assert arguments[0] == expected_backend
     assert arguments[10] is expected_offload
     assert arguments[13] == expected_batch
+
+
+def test_compare_reports_json_name_matches_mode(tmp_path, monkeypatch) -> None:
+    config = SimpleNamespace(outputs_dir=tmp_path)
+    service = PlaygroundService(config)
+
+    monkeypatch.setattr("model_lab.playground.service.compare_image", lambda *args, **kwargs: {})
+    _, report, _ = service.compare("img.jpg", ["yolo"], "object", "official")
+    assert report.endswith("comparison.json")
+
+    monkeypatch.setattr(
+        "model_lab.playground.service.compare_image_cascade", lambda *args, **kwargs: {}
+    )
+    _, report, _ = service.compare("img.jpg", ["yolo"], "object", "official", cascade=True)
+    assert report.endswith("cascade.json")

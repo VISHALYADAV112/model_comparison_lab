@@ -670,8 +670,9 @@ class PlaygroundService:
                 sam_backend=sam_backend,
                 detector_target=detector_target,
             )
+        report = output / ("cascade.json" if cascade else "comparison.json")
         images = [str(path) for path in sorted(output.glob("*_annotated.jpg"))]
-        return images, str(output / "comparison.json"), payload
+        return images, str(report), payload
 
     def quick_compare(
         self,
