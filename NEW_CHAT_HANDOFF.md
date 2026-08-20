@@ -18,8 +18,13 @@ plateau. Compare native IDs/masks against ordinary whole-video output. Test
 RTSP only with a user-authorized camera reachable from the server. Secondary
 priority once that passes: validate release 0.6.0's image cascade mode
 (tile -> propose -> fuse -> padded ROI crop -> SAM verify) on the server with
-real model weights, since it was only unit/static-tested on the Mac. Keep the
-architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
+real model weights, since it was only unit/static-tested on the Mac. Tertiary:
+release 0.6.1 adds a standalone "Root pipeline lab" tab that runs the vendored
+root long_range_vision pipeline untouched (tile -> RF-DETR/Grounding DINO ->
+fuse -> SAM 3 ROI verify -> temporal tracker); after `pip install -e ".[all,root]"`
+on the server, first runs download IDEA-Research/grounding-dino-tiny and
+facebook/sam3 weights, so validate it with a short image and a short video.
+Keep the architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
 ```
 
 ## Goal and architecture decision
@@ -120,7 +125,7 @@ Stop the dashboard with `Ctrl-C`, then run:
 ```bash
 cd "$HOME/model_comparison_lab"
 git pull --ff-only
-.venv/bin/python -m pip install -e ".[all]"
+.venv/bin/python -m pip install -e ".[all,root]"
 SAM3_CPP_BACKEND=cpu ./scripts/build_sam3_cpp.sh
 .venv/bin/model-lab doctor --strict
 ```
@@ -308,6 +313,34 @@ accuracy improvement. Validate on the server before treating it as the
 recommended default, and expect proportionally longer runs on large/high-tile-
 count images.
 
+## Release 0.6.1 Root pipeline lab tab
+
+A standalone **7 · Root pipeline lab** tab was added to the dashboard. It runs
+the sibling root project's `long_range_vision` pipeline verbatim and separate
+from the lab's own YOLO/RF-DETR/SAM adapters: source-resolution tiles ->
+RF-DETR Large + Grounding DINO Tiny proposals -> per-model NMS -> weighted box
+fusion -> optional SAM 3 verify on padded ROI crops -> (video) temporal tracker
+with optional appearance memory.
+
+- The root package is vendored verbatim at `vendor/long_range_vision/` (imports
+  are lazy, so the lab still installs without PyAV/transformers) and is picked
+  up by `[tool.setuptools.packages.find]` (`where = ["src", "vendor"]`).
+- New `[root]` extra: `av>=14`, `torch>=2.7`, `transformers>=5.0`,
+  `accelerate>=1.0`. Server install line is now `pip install -e ".[all,root]"`.
+- `src/model_lab/playground/root_service.py`: `RootPipelineService` builds the
+  root config from dashboard knobs (prompts, threshold, tile_size,
+  tile_overlap, nms_iou, ensemble_iou, roi_padding, device) and maps
+  `VideoSettings` knobs (detection_interval, min_hits, max_missed_keyframes,
+  association_iou, appearance_encoder/weight/momentum/batch_size/roi_padding,
+  start_frame, max_frames). Image runs return per-stage annotated JPEGs plus
+  the JSON report; video runs return annotated.mp4 plus tracks.json. If the
+  vendored package is absent it degrades to a friendly message.
+- First real runs on the server download `IDEA-Research/grounding-dino-tiny`
+  and `facebook/sam3` via the HF hub. Everything else (RF-DETR) is already
+  present. Only static/fake-adapter tests ran on the Mac.
+- New tests: `tests/test_root_service.py` (4) stub the vendored modules.
+  Suite is now 89 passed, 1 skipped.
+
 ## Video cascade research (0.6.0, no code changes)
 
 The same question was asked for video: can the tile/ROI-crop pattern protect
@@ -391,11 +424,12 @@ uv run --no-project --isolated --python 3.12 --with ruff \
   src/model_lab/cli.py src/model_lab/cascade.py src/model_lab/tiling.py \
   src/model_lab/fusion.py \
   src/model_lab/playground/app.py src/model_lab/playground/service.py \
-  src/model_lab/playground/sessions.py \
+  src/model_lab/playground/sessions.py src/model_lab/playground/root_service.py \
   tests/test_bounded_video.py tests/test_continuous_video.py tests/test_config.py \
   tests/test_meta_sam3_adapter.py \
   tests/test_cpp_bridge_contract.py \
-  tests/test_tiling.py tests/test_fusion.py tests/test_cascade.py
+  tests/test_tiling.py tests/test_fusion.py tests/test_cascade.py \
+  tests/test_root_service.py
 ```
 
 Model-weight inference cannot be fully validated on the Mac. Previous local
@@ -403,7 +437,7 @@ checks compiled the Q8 bridge against its exact pinned source, validated the
 H.264 test video's raw frame byte count, and tested rendering with H.264. The
 image cascade mode (0.6.0) was tested only with fake detector/SAM adapters
 standing in for YOLO/RF-DETR/SAM, since real inference needs the server.
-The local suite reports 81 passed and one Torch-specific regression skipped
+The local suite reports 89 passed and one Torch-specific regression skipped
 because the isolated macOS runner has no Torch. A repository-wide Ruff run
 still reports four pre-existing import-order/unused-import findings in
 untouched files; changed files are clean.

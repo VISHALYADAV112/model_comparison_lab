@@ -3,6 +3,7 @@ from __future__ import annotations
 import gradio as gr
 
 from ..config import LabConfig
+from .root_service import RootPipelineService
 from .service import PlaygroundService
 
 APP_CSS = """
@@ -89,6 +90,7 @@ def _clear_prompts():
 
 def create_app(config: LabConfig) -> gr.Blocks:
     service = PlaygroundService(config)
+    root_service = RootPipelineService(config)
     bounded_defaults = config.raw.get("bounded_video", {})
     with gr.Blocks(title="Long-range vision model lab") as app:
         gr.HTML(
@@ -775,7 +777,163 @@ def create_app(config: LabConfig) -> gr.Blocks:
                     [live_output_video, live_manifest, live_archive, live_result],
                 )
 
-            with gr.Tab("7 · Models and system status"):
+            with gr.Tab("7 · Root pipeline lab"):
+                gr.Markdown(
+                    "## Independent root architecture lab\n"
+                    "Drives the vendored `long_range_vision` pipeline untouched and separate from the lab's own "
+                    "YOLO/RF-DETR/SAM adapters. Architecture: source-resolution tiles -> RF-DETR / Grounding DINO "
+                    "proposals -> per-model NMS + weighted box fusion -> optional SAM 3 verify on padded ROI crops "
+                    "-> (video) temporal tracker with optional appearance memory. Every knob below maps directly "
+                    "to a stage of that pipeline."
+                )
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        gr.Markdown("### Stage A — spatial front end")
+                        root_image = gr.Image(
+                            type="filepath",
+                            label="Input image (Stage A/B)",
+                            sources=["upload", "clipboard"],
+                        )
+                        root_prompts = gr.Textbox(
+                            value="person, vehicle",
+                            label="Prompts (comma or line separated)",
+                            info="Used for open-vocabulary matching and as the SAM verify text.",
+                        )
+                        root_models = gr.CheckboxGroup(
+                            choices=[
+                                ("RF-DETR Large — closed-set proposal", "rfdetr"),
+                                ("Grounding DINO Tiny — open-vocabulary proposal", "grounding_dino"),
+                                ("SAM 3 verify on padded ROI crops (downloads facebook/sam3)", "sam3_verify"),
+                            ],
+                            value=["rfdetr", "grounding_dino"],
+                            label="Architecture stages to enable",
+                        )
+                        with gr.Accordion("Spatial front end knobs", open=True):
+                            root_threshold = gr.Slider(
+                                0.05, 0.95, 0.24, step=0.01, label="Detection threshold"
+                            )
+                            root_tile_size = gr.Slider(
+                                256, 2048, 1008, step=16, label="Tile size (px)"
+                            )
+                            root_tile_overlap = gr.Slider(
+                                0.0, 0.5, 0.2, step=0.05, label="Tile overlap"
+                            )
+                            root_nms_iou = gr.Slider(
+                                0.1, 0.9, 0.45, step=0.05, label="Per-model NMS IoU"
+                            )
+                            root_ensemble_iou = gr.Slider(
+                                0.1, 0.9, 0.5, step=0.05, label="Ensemble fusion IoU"
+                            )
+                            root_roi_padding = gr.Slider(
+                                0.5, 4.0, 2.0, step=0.1, label="SAM ROI crop padding"
+                            )
+                            root_device = gr.Radio(
+                                ["auto", "cuda", "cpu"], value="auto", label="Device"
+                            )
+                        gr.Markdown("### Stage B — run the image pipeline")
+                        root_image_run = gr.Button("Run image through the root pipeline", variant="primary")
+                        gr.Markdown("### Stage C — temporal tracker (video)")
+                        root_video = gr.Video(label="Input video", format="mp4")
+                        with gr.Accordion("Temporal tracker knobs", open=True):
+                            root_detection_interval = gr.Slider(
+                                1, 60, 5, step=1, label="Detection keyframe interval (frames)",
+                                info="Detectors run on every Nth frame; SAM-style propagation is not used here.",
+                            )
+                            root_min_hits = gr.Slider(
+                                1, 10, 2, step=1, label="Min hits to confirm a track"
+                            )
+                            root_max_missed = gr.Slider(
+                                0, 10, 2, step=1, label="Max missed keyframes before retirement"
+                            )
+                            root_association_iou = gr.Slider(
+                                0.05, 0.9, 0.2, step=0.05, label="Association IoU"
+                            )
+                            root_appearance_encoder = gr.Radio(
+                                ["none", "histogram", "mobilenet_v3_small"],
+                                value="none",
+                                label="Appearance encoder",
+                                info="histogram is portable; mobilenet_v3_small needs torchvision weights.",
+                            )
+                            root_appearance_weight = gr.Slider(
+                                0.0, 1.0, 0.35, step=0.05, label="Appearance weight"
+                            )
+                            root_appearance_momentum = gr.Slider(
+                                0.0, 0.99, 0.85, step=0.01, label="Appearance memory momentum"
+                            )
+                            root_appearance_batch = gr.Slider(
+                                1, 256, 64, step=1, label="Appearance batch size"
+                            )
+                            root_appearance_roi_padding = gr.Slider(
+                                0.0, 1.0, 0.35, step=0.05, label="Appearance ROI padding"
+                            )
+                            root_start_frame = gr.Number(value=0, precision=0, label="Start frame")
+                            root_max_frames = gr.Number(
+                                value=0, precision=0, label="Max frames (0 = whole video)"
+                            )
+                        root_video_run = gr.Button("Run video through the root tracker", variant="primary")
+                    with gr.Column(scale=2):
+                        root_summary = gr.Markdown(
+                            "Stage A/B/C results appear here.", elem_classes="result-card"
+                        )
+                        root_gallery = gr.Gallery(
+                            label="Stage-by-stage annotated outputs",
+                            columns=3,
+                            object_fit="contain",
+                            height="auto",
+                        )
+                        root_image_json = gr.File(label="Download image pipeline report (JSON)")
+                        with gr.Accordion("Image technical details", open=False):
+                            root_image_payload = gr.JSON(label="Structured image result")
+                        root_video_output = gr.Video(label="Annotated tracking result")
+                        root_video_tracks = gr.File(label="Download tracks report (JSON)")
+                        with gr.Accordion("Video technical details", open=False):
+                            root_video_payload = gr.JSON(label="Structured video result")
+
+                root_image_run.click(
+                    root_service.run_image,
+                    [
+                        root_image,
+                        root_prompts,
+                        root_models,
+                        root_threshold,
+                        root_tile_size,
+                        root_tile_overlap,
+                        root_nms_iou,
+                        root_ensemble_iou,
+                        root_roi_padding,
+                        root_device,
+                    ],
+                    [root_summary, root_gallery, root_image_json, root_image_payload],
+                )
+                root_video_run.click(
+                    root_service.run_video_job,
+                    [
+                        root_video,
+                        root_prompts,
+                        root_models,
+                        root_threshold,
+                        root_tile_size,
+                        root_tile_overlap,
+                        root_nms_iou,
+                        root_ensemble_iou,
+                        root_roi_padding,
+                        root_device,
+                        root_detection_interval,
+                        root_min_hits,
+                        root_max_missed,
+                        root_association_iou,
+                        root_appearance_encoder,
+                        root_appearance_weight,
+                        root_appearance_momentum,
+                        root_appearance_batch,
+                        root_appearance_roi_padding,
+                        root_start_frame,
+                        root_max_frames,
+                    ],
+                    [root_summary, root_video_output, root_video_tracks, root_video_payload],
+                )
+
+            with gr.Tab("8 · Models and system status"):
                 gr.Markdown(
                     "## Installation status\n"
                     "A green **Ready** value means that checkpoint or runtime exists. Downloads are resumable; "

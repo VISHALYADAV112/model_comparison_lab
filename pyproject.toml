@@ -28,6 +28,7 @@ dependencies = [
 yolo = ["ultralytics>=8.4"]
 rfdetr = ["rfdetr>=1.9,<2"]
 playground = ["gradio>=6,<7", "opencv-python-headless==4.11.0.86"]
+root = ["av>=14", "numpy>=1.26", "torch>=2.7", "transformers>=5.0", "accelerate>=1.0"]
 all = [
   "ultralytics>=8.4",
   "rfdetr>=1.9,<2",
@@ -40,7 +41,7 @@ dev = ["pytest>=8.3"]
 model-lab = "model_lab.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "vendor"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
