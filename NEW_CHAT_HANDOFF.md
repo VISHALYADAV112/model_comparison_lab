@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 19 August 2026. Project release: 0.5.3.
+Last updated: 20 August 2026. Project release: 0.5.3.
 
 ## Copy this into the new chat
 
@@ -12,11 +12,11 @@ then inspect git status, the latest commit, and
 repository is model_comparison_lab on branch main and changes must be tested
 and pushed to GitHub so the Rocky Linux server can pull them. Current priority:
 verify release 0.5.3's continuous native SAM 3.1 engine on the server. First
-run one 60-frame window, then 300+ frames while checking that peak VRAM and
-rolling-state counts plateau. Compare native IDs/masks against ordinary
-whole-video output. Test RTSP only with a user-authorized camera reachable from
-the server. Keep the architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM
-runtime.
+run two 60-frame windows to exercise the repaired frame-59/frame-60 boundary,
+then 300+ frames while checking that peak VRAM and rolling-state counts
+plateau. Compare native IDs/masks against ordinary whole-video output. Test
+RTSP only with a user-authorized camera reachable from the server. Keep the
+architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
 ```
 
 ## Goal and architecture decision
@@ -180,6 +180,11 @@ batch 1 at 60 frames. The exact OOM traceback was not present in the latest
 
 ## Release 0.5.3 continuous native SAM 3.1 path
 
+Release 0.5.3 is pushed to `origin/main` at commit `1697a0a` (`Keep continuous
+SAM prompt state synchronized`). Pull that commit before the next server test;
+no C++ rebuild is required because this release changes only Python and
+documentation.
+
 Dashboard tab **Long video and RTSP surveillance** defaults to **Continuous
 native SAM 3.1**. It keeps one predictor and tracking state for the complete
 file/feed. The 60-frame control is only a progress/pruning window: SAM is not
@@ -251,22 +256,24 @@ incremented instead of allowing memory and latency to grow without bound.
 
 ## Immediate server verification checklist
 
-1. Pull, reinstall, and rebuild using the update commands above.
-2. Start the dashboard and select Q8 plus **Quick test — first 60 frames**.
-   Confirm it passes frame 0. Expect CPU inference and slow progress.
-3. Restart the dashboard before the official test.
-4. Select **Official balanced (CPU frames, batch 4)** and **Quick test — first
-   60 frames**. Watch `nvidia-smi` in a third terminal.
-5. If it OOMs, copy the complete CUDA exception and `nvidia-smi` output into
-   `error.txt`. Retry batch 1 only after restarting the dashboard.
-6. Do not use whole-video mode until the 60- and 300-frame tests succeed.
-7. In tab 5 select **Continuous native SAM 3.1**, run **Maximum chunks = 1**,
-   and confirm 60 frames plus one final MP4, `frames.jsonl`, and
-   `track_identities.sqlite3`.
-8. Run 300+ frames and confirm `rolling_state.cached_output_frames`, allocated
-   VRAM, and reserved VRAM plateau. Compare IDs and mask IoU with an ordinary
-   whole-video run on the same source.
-9. For RTSP, use a short authorized test feed and finite duration. Confirm the
+1. Stop the dashboard, pull commit `1697a0a`, reinstall editable Python, run
+   `model-lab doctor --strict`, and restart. Do not rebuild the C++ bridge.
+2. In tab 5 select **Continuous native SAM 3.1** and set **Maximum chunks =
+   2**. Confirm it crosses into window 2 and completes 120 frames without the
+   `propagate_in_video_preflight` assertion.
+3. Confirm the live annotated preview refreshes after Meta's initial 15-frame
+   confirmation delay, then confirm one final MP4, `frames.jsonl`,
+   `index.json`, and `track_identities.sqlite3`.
+4. Check that object IDs remain native and continuous across frames 59/60; no
+   overlap-based ID stitching should appear.
+5. Run five or more windows (300+ frames) and confirm
+   `rolling_state.cached_output_frames`, allocated VRAM, and reserved VRAM
+   plateau. Compare IDs and mask IoU with an ordinary whole-video run on the
+   same source.
+6. If another exception occurs, replace `error.txt` with the complete terminal
+   output including the first `[continuous-sam31] window` line and the final
+   traceback. Also capture `nvidia-smi` if it is a CUDA/OOM failure.
+7. For RTSP, use a short authorized test feed and finite duration. Confirm the
    stored source contains no credentials, Stop works, and disconnect/reconnect
    does not create an unbounded pending queue.
 
