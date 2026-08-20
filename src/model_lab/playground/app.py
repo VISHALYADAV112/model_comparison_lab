@@ -170,6 +170,14 @@ def create_app(config: LabConfig) -> gr.Blocks:
                                 "the whole frame once. Slower: runs each detector per tile and SAM per candidate."
                             ),
                         )
+                        quick_fuse = gr.Checkbox(
+                            value=True,
+                            label="Fuse proposals across detectors before SAM verification",
+                            info=(
+                                "On: one ensemble cascade result. Off: each detector's tiled proposals are verified "
+                                "and reported separately, so you can compare the detectors in cascade mode."
+                            ),
+                        )
                         gr.Markdown("### Step 4 — Run")
                         quick_run = gr.Button("Run image comparison", variant="primary", elem_id="quick-run")
 
@@ -195,6 +203,7 @@ def create_app(config: LabConfig) -> gr.Blocks:
                         quick_backend,
                         quick_filter,
                         quick_cascade,
+                        quick_fuse,
                     ],
                     [quick_summary, quick_gallery, quick_report, quick_json],
                 )

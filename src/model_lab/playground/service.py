@@ -647,6 +647,7 @@ class PlaygroundService:
         sam_backend: str,
         detector_target: str | None = None,
         cascade: bool = False,
+        fuse_models: bool = True,
     ) -> tuple[list[str], str, dict]:
         image_path = _path(image)
         output = self._job("comparison")
@@ -659,6 +660,7 @@ class PlaygroundService:
                 sam_text=sam_text,
                 sam_backend=sam_backend,
                 detector_target=detector_target,
+                fuse_models=fuse_models,
             )
         else:
             payload = compare_image(
@@ -682,6 +684,7 @@ class PlaygroundService:
         sam_backend: str,
         filter_detectors: bool = True,
         cascade: bool = False,
+        fuse_models: bool = True,
     ) -> tuple[str, list[tuple[str, str]], str, dict]:
         if not models:
             raise ValueError("Select at least one model")
@@ -695,6 +698,7 @@ class PlaygroundService:
             sam_backend,
             detector_target=target if filter_detectors else None,
             cascade=cascade,
+            fuse_models=fuse_models,
         )
         captions = {
             "yolo": f"YOLO26-L — {target} only" if filter_detectors else "YOLO26-L — all detected classes",
@@ -703,6 +707,8 @@ class PlaygroundService:
             ),
             "sam3": f"SAM 3 segmentation: {target}",
             "cascade": f"Cascade (tiled + ROI-verified): {target}",
+            "yolo_cascade": f"YOLO26-L cascade (tiled + ROI-verified): {target}",
+            "rfdetr_cascade": f"RF-DETR Large cascade (tiled + ROI-verified): {target}",
         }
         gallery = [
             (

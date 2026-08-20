@@ -84,14 +84,16 @@ def _run_roi_verification(
     sam_text: str,
     output_dir: Path,
     padding: float,
+    prefix: str = "",
 ) -> tuple[list[Detection], float]:
     """Verify each fused proposal with SAM on its own padded, full-resolution crop.
 
     This is the step that actually protects small objects: SAM sees a tight
     crop at source resolution instead of the whole frame resized to its fixed
-    model input size.
+    model input size. ``prefix`` keeps per-model mask files and scratch state
+    from colliding when proposals are verified without cross-model fusion.
     """
-    scratch_dir = output_dir / "_scratch" / "sam3_roi"
+    scratch_dir = output_dir / "_scratch" / (f"sam3_roi_{prefix}" if prefix else "sam3_roi")
     mask_dir = output_dir / "sam3_cascade_masks"
     scratch_dir.mkdir(parents=True, exist_ok=True)
     mask_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +116,11 @@ def _run_roi_verification(
             crop_mask = resolve_mask_path(manifest_path, detection.mask_path)
             mask_name = None
             if crop_mask and crop_mask.exists():
-                mask_name = f"roi_{roi_index:05d}_{detection_index:02d}.png"
+                mask_name = (
+                    f"{prefix}_roi_{roi_index:05d}_{detection_index:02d}.png"
+                    if prefix
+                    else f"roi_{roi_index:05d}_{detection_index:02d}.png"
+                )
                 _composite_mask(crop_mask, mask_dir / mask_name, x1, y1, image.width, image.height)
             box = clip_box(translate_box(detection.box, x1, y1), image.width, image.height)
             metadata = dict(detection.metadata)
@@ -153,13 +159,19 @@ def compare_image_cascade(
     per_model_nms_iou: float | None = None,
     ensemble_iou: float | None = None,
     detector_target: str | None = None,
+    fuse_models: bool = True,
 ) -> dict:
-    """Tile -> propose -> fuse -> padded-ROI-crop -> SAM verify, on one full-resolution image.
+    """Tile -> propose -> (fuse?) -> padded-ROI-crop -> SAM verify, on one full-resolution image.
 
     Ports long_range_vision.pipeline's image architecture into model_comparison_lab.
     Unlike compare_image (each model run once on the whole frame, for apples-to-apples
     comparison), this path is meant to recover the detail that a single whole-image
     resize would otherwise erase for small/distant objects.
+
+    With ``fuse_models=True`` the detectors' proposals are merged by weighted box
+    fusion into one ensemble verified by SAM. With ``fuse_models=False`` each
+    detector's own tiled proposals are verified and reported separately, so per-model
+    cascade behavior stays comparable without cross-model fusion.
     """
     image_path = image.expanduser().resolve()
     if not image_path.is_file():
@@ -214,10 +226,6 @@ def compare_image_cascade(
         except Exception as exc:  # noqa: BLE001 - preserve other model results in a benchmark run
             errors[name] = f"{type(exc).__name__}: {exc}"
 
-    all_proposals = [detection for detections in proposal_results.values() for detection in detections]
-    weights = {name: float(configured_weights.get(name, 1.0)) for name in requested}
-    fused_proposals = weighted_box_fusion(all_proposals, model_weights=weights, iou_threshold=ensemble_iou)
-
     selected_backend = sam_backend or config.raw["sam3"].get("backend", "official")
     if selected_backend == "official":
         sam_adapter: Any = MetaSam3Adapter(config)
@@ -226,32 +234,63 @@ def compare_image_cascade(
     else:
         raise ValueError(f"Unknown SAM backend: {selected_backend}")
 
-    verified: list[Detection] = []
-    try:
-        verified, sam_elapsed = _run_roi_verification(
-            sam_adapter, pil_image, fused_proposals, sam_text, output_dir, roi_padding
+    results: list[ModelResult] = []
+    fused_proposals: list[Detection] = []
+    if fuse_models:
+        all_proposals = [detection for detections in proposal_results.values() for detection in detections]
+        weights = {name: float(configured_weights.get(name, 1.0)) for name in requested}
+        fused_proposals = weighted_box_fusion(all_proposals, model_weights=weights, iou_threshold=ensemble_iou)
+        verified: list[Detection] = []
+        try:
+            verified, sam_elapsed = _run_roi_verification(
+                sam_adapter, pil_image, fused_proposals, sam_text, output_dir, roi_padding
+            )
+            timing["sam3_roi_verify"] = sam_elapsed
+        except Exception as exc:  # noqa: BLE001 - preserve proposal results even if SAM fails
+            errors["sam3"] = f"{type(exc).__name__}: {exc}"
+        cascade_result = ModelResult(
+            model=f"cascade({'+'.join(requested)}->sam3-{selected_backend})",
+            source=str(image_path),
+            width=pil_image.width,
+            height=pil_image.height,
+            elapsed_seconds=sum(timing.values()),
+            detections=verified,
+            metadata={
+                "proposal_models": requested,
+                "sam_backend": selected_backend,
+                "fused_proposal_count": len(fused_proposals),
+            },
         )
-        timing["sam3_roi_verify"] = sam_elapsed
-    except Exception as exc:  # noqa: BLE001 - preserve proposal results even if SAM fails
-        errors["sam3"] = f"{type(exc).__name__}: {exc}"
-    finally:
-        del sam_adapter
-        gc.collect()
-
-    cascade_result = ModelResult(
-        model=f"cascade({'+'.join(requested)}->sam3-{selected_backend})",
-        source=str(image_path),
-        width=pil_image.width,
-        height=pil_image.height,
-        elapsed_seconds=sum(timing.values()),
-        detections=verified,
-        metadata={
-            "proposal_models": requested,
-            "sam_backend": selected_backend,
-            "fused_proposal_count": len(fused_proposals),
-        },
-    )
-    render_result(image_path, cascade_result, output_dir / "cascade_annotated.jpg")
+        results.append(cascade_result)
+        render_result(image_path, cascade_result, output_dir / "cascade_annotated.jpg")
+    else:
+        for name in requested:
+            proposals = proposal_results.get(name, [])
+            try:
+                verified, sam_elapsed = _run_roi_verification(
+                    sam_adapter, pil_image, proposals, sam_text, output_dir, roi_padding, prefix=name
+                )
+                timing[f"{name}_sam3_roi_verify"] = sam_elapsed
+            except Exception as exc:  # noqa: BLE001 - keep other models' results even if one fails
+                errors[f"sam3_{name}"] = f"{type(exc).__name__}: {exc}"
+                continue
+            result = ModelResult(
+                model=f"cascade({name}->sam3-{selected_backend})",
+                source=str(image_path),
+                width=pil_image.width,
+                height=pil_image.height,
+                elapsed_seconds=timing.get(name, 0.0) + sam_elapsed,
+                detections=verified,
+                metadata={
+                    "proposal_model": name,
+                    "sam_backend": selected_backend,
+                    "proposal_count": len(proposals),
+                },
+            )
+            results.append(result)
+            render_result(image_path, result, output_dir / f"{name}_cascade_annotated.jpg")
+    del sam_adapter
+    gc.collect()
     shutil.rmtree(output_dir / "_scratch", ignore_errors=True)
 
     payload = {
@@ -264,6 +303,7 @@ def compare_image_cascade(
         "tile_size": tile_size,
         "tile_overlap": tile_overlap,
         "roi_padding": roi_padding,
+        "fuse_models": fuse_models,
         "warning": (
             "Cascade mode preserves source-resolution detail through tiled proposal detection and "
             "padded ROI-crop SAM verification, mirroring the long_range_vision root image pipeline. "
@@ -271,9 +311,9 @@ def compare_image_cascade(
         ),
         "timing_seconds": timing,
         "proposal_counts": {name: len(detections) for name, detections in proposal_results.items()},
-        "fused_proposal_count": len(fused_proposals),
-        "result": cascade_result.to_dict(),
-        "results": [cascade_result.to_dict()],
+        "fused_proposal_count": len(fused_proposals) if fuse_models else None,
+        "result": results[-1].to_dict() if results else None,
+        "results": [result.to_dict() for result in results],
         "errors": errors,
     }
     (output_dir / "cascade.json").write_text(json.dumps(payload, indent=2))

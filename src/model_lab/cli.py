@@ -68,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--tile-size", type=int, default=None, help="Cascade mode: proposal tile size")
     compare.add_argument("--tile-overlap", type=float, default=None, help="Cascade mode: proposal tile overlap")
     compare.add_argument("--roi-padding", type=float, default=None, help="Cascade mode: SAM verification crop padding")
+    compare.add_argument(
+        "--no-fuse",
+        dest="fuse_models",
+        action="store_false",
+        help="Cascade mode: verify each detector's tiles with SAM separately instead of fusing proposals",
+    )
 
     image = sub.add_parser("sam-image", help="Use every supported SAM 3 image prompt")
     image.add_argument("--input", required=True, type=Path)
@@ -177,6 +183,7 @@ def main(argv: list[str] | None = None) -> None:
                 tile_overlap=args.tile_overlap,
                 roi_padding=args.roi_padding,
                 detector_target=args.detector_target,
+                fuse_models=args.fuse_models,
             )
         else:
             payload = compare_image(

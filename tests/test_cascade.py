@@ -157,3 +157,40 @@ def test_compare_image_cascade_rejects_unknown_proposal_model(tmp_path: Path) ->
 
     with pytest.raises(ValueError):
         compare_image_cascade(config, image_path, tmp_path / "out", proposal_models=["not_a_model"])
+
+
+def test_compare_image_cascade_without_fusion_reports_each_model_separately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image_path = tmp_path / "source.png"
+    Image.new("RGB", (200, 150), "gray").save(image_path)
+    output_dir = tmp_path / "out"
+
+    monkeypatch.setitem(cascade._PROPOSAL_ADAPTERS, "yolo", lambda config: FakeDetectorAdapter("yolo"))
+    monkeypatch.setitem(cascade._PROPOSAL_ADAPTERS, "rfdetr", lambda config: FakeDetectorAdapter("rfdetr"))
+    monkeypatch.setattr(cascade, "MetaSam3Adapter", lambda config: FakeSamAdapter())
+
+    config = LabConfig(root=tmp_path, raw={"sam3": {"backend": "official"}})
+
+    payload = compare_image_cascade(
+        config,
+        image_path,
+        output_dir,
+        proposal_models=["yolo", "rfdetr"],
+        sam_text="person",
+        tile_size=1008,
+        fuse_models=False,
+    )
+
+    assert payload["fuse_models"] is False
+    assert payload["fused_proposal_count"] is None
+    assert payload["errors"] == {}
+    assert len(payload["results"]) == 2
+    models = {result["model"] for result in payload["results"]}
+    assert models == {"cascade(yolo->sam3-official)", "cascade(rfdetr->sam3-official)"}
+    assert all(len(result["detections"]) == 1 for result in payload["results"])
+    assert (output_dir / "yolo_cascade_annotated.jpg").exists()
+    assert (output_dir / "rfdetr_cascade_annotated.jpg").exists()
+    assert not (output_dir / "cascade_annotated.jpg").exists()
+    assert (output_dir / "cascade.json").exists()
+    assert not (output_dir / "_scratch").exists()
