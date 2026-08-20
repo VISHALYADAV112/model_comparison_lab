@@ -141,12 +141,12 @@ class RootPipelineService:
         ensemble_iou: float,
         roi_padding: float,
         device: str,
-    ) -> tuple[str, list[str], str, dict]:
+    ) -> tuple[str, list[str], str | None, dict]:
         if not self.ready:
             return (
                 "The vendored root pipeline is not installed. Run `pip install -e '.[all,root]'`.",
                 [],
-                "",
+                None,
                 {"error": "root pipeline unavailable"},
             )
         from PIL import Image
@@ -190,7 +190,9 @@ class RootPipelineService:
             )
         )
         summary = "\n".join(lines)
-        return summary, gallery, str(output / "root_image.json"), report
+        gallery = [path for path in gallery if Path(path).is_file()]
+        json_path = output / "root_image.json"
+        return summary, gallery, str(json_path) if json_path.is_file() else None, report
 
     def run_video_job(
         self,
@@ -215,12 +217,12 @@ class RootPipelineService:
         appearance_roi_padding: float,
         start_frame: int,
         max_frames: int,
-    ) -> tuple[str, str, str, dict]:
+    ) -> tuple[str, str | None, str | None, dict]:
         if not self.ready:
             return (
                 "The vendored root pipeline is not installed. Run `pip install -e '.[all,root]'`.",
-                "",
-                "",
+                None,
+                None,
                 {"error": "root pipeline unavailable"},
             )
         output = self._job("video")
@@ -264,4 +266,4 @@ class RootPipelineService:
             f"- Detection keyframe interval: **{detection_interval}** frames\n"
             f"- Output: `{annotated}`"
         )
-        return summary, str(annotated), str(tracks), report
+        return summary, str(annotated) if annotated.is_file() else None, str(tracks) if tracks.is_file() else None, report

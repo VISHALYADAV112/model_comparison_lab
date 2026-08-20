@@ -340,6 +340,21 @@ with optional appearance memory.
   present. Only static/fake-adapter tests ran on the Mac.
 - New tests: `tests/test_root_service.py` (4) stub the vendored modules.
   Suite is now 89 passed, 1 skipped.
+- **Post-release fix (uncommitted as of this note):** the first server run of
+  the tab produced two identical
+  `IsADirectoryError: [Errno 21] Is a directory: '/home/vishal/model_comparison_lab'`
+  tracebacks in gradio's `hash_file` during output postprocess. Root cause is
+  still unconfirmed: every file-valued output from the tab was verified to be a
+  real file (image run, video run, and the full queue/HTTP path were all
+  reproduced clean with the real vendored code). The tab handlers were hardened
+  so that any output path that is missing or not a regular file is dropped
+  (gallery) or returned as `None` (File/Video), and the `not ready` fallback now
+  returns `None` instead of `""`, so Gradio can never be handed a directory or
+  empty path. Run `git log --oneline -1` on the server to confirm the deployed
+  commit; if the error persists after redeploying this fix, capture the 20 log
+  lines above the traceback (they name the event) and confirm
+  `grep outputs_dir configs/models.toml` and
+  `python -c "import long_range_vision; print(long_range_vision.__file__)"`.
 
 ## Video cascade research (0.6.0, no code changes)
 

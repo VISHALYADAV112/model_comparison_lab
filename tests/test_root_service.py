@@ -176,5 +176,5 @@ def test_root_service_reports_missing_package_gracefully(tmp_path, monkeypatch) 
     )
     assert "not installed" in summary
     assert gallery == []
-    assert report_path == ""
+    assert report_path is None
     assert payload["error"] == "root pipeline unavailable"
