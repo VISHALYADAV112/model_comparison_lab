@@ -1,6 +1,6 @@
 # New-chat handoff: long-range vision and three-model lab
 
-Last updated: 20 August 2026. Project release: 0.5.3.
+Last updated: 20 August 2026. Project release: 0.6.0.
 
 ## Copy this into the new chat
 
@@ -15,7 +15,10 @@ verify release 0.5.3's continuous native SAM 3.1 engine on the server. First
 run two 60-frame windows to exercise the repaired frame-59/frame-60 boundary,
 then 300+ frames while checking that peak VRAM and rolling-state counts
 plateau. Compare native IDs/masks against ordinary whole-video output. Test
-RTSP only with a user-authorized camera reachable from the server. Keep the
+RTSP only with a user-authorized camera reachable from the server. Secondary
+priority once that passes: validate release 0.6.0's image cascade mode
+(tile -> propose -> fuse -> padded ROI crop -> SAM verify) on the server with
+real model weights, since it was only unit/static-tested on the Mac. Keep the
 architecture lean: YOLO, RF-DETR and SAM; no LLM or VLM runtime.
 ```
 
@@ -254,6 +257,97 @@ inference run concurrently with at most two waiting chunks. If inference falls
 behind, the oldest pending chunk is deleted and `dropped_rtsp_chunks` is
 incremented instead of allowing memory and latency to grow without bound.
 
+## Release 0.6.0 image cascade mode
+
+`model_comparison_lab`'s image comparison previously ran YOLO, RF-DETR, and
+SAM 3 each once on the whole frame — good for apples-to-apples model
+comparison, but SAM 3/3.1 internally resizes every frame to a fixed 1008x1008
+(confirmed in the pinned `facebookresearch/sam3` source at
+`sam3/model_builder.py`, `image_size=1008` in five places), so a small or
+distant object in a large source image can be squashed away before any model
+sees it. The sibling root project's `src/long_range_vision/pipeline.py`
+already solved this for its own image architecture with a tile -> propose ->
+fuse -> padded-ROI-crop -> verify cascade; that pattern did not exist in
+`model_comparison_lab` until now.
+
+New modules:
+
+- `src/model_lab/tiling.py`: overlapping source-resolution tiles
+  (`generate_tiles`), coordinate mapping (`translate_box`, `clip_box`), and
+  padded verification crops (`padded_crop_box`). Ported from
+  `long_range_vision.tiling`, adapted to model_lab's tuple-based `Detection`.
+- `src/model_lab/fusion.py`: `iou`, `non_max_suppression`, and
+  `weighted_box_fusion`. Ported from `long_range_vision.fusion`; provenance is
+  read from `detection.metadata["source_model"]` since model_lab's `Detection`
+  has no dedicated model field.
+- `src/model_lab/cascade.py`: `compare_image_cascade` orchestrates the whole
+  pipeline. YOLO/RF-DETR are file-path adapters, so each tile crop is written
+  to a scratch temp file, detected, then deleted; per-model NMS runs on the
+  tile results, then cross-model weighted box fusion. Each fused box becomes a
+  padded ROI crop (default padding 2.0, matching root) cut from the original
+  full-resolution image, and SAM (official or Q8, whichever backend is
+  selected) verifies only that crop. A crop-sized mask is pasted into a
+  full-image-sized canvas before saving so the existing mask-overlay/rendering
+  code works unmodified.
+
+Wired in three places: `model-lab compare-image --cascade` (CLI, with
+`--tile-size`, `--tile-overlap`, `--roi-padding`, `--detector-target`), a new
+"Cascade mode" checkbox on the dashboard's first tab
+(`quick_cascade` in `playground/app.py`, threaded through
+`service.quick_compare`/`service.compare`), and a `[cascade]` section in
+`configs/models.toml` (`tile_size=1008`, `tile_overlap=0.2`,
+`roi_padding=2.0`, `per_model_nms_iou=0.45`, `ensemble_iou=0.5`,
+`[cascade.weights]`).
+
+Status: 23 new tests (`tests/test_tiling.py`, `tests/test_fusion.py`,
+`tests/test_cascade.py`) pass on the Mac using fake detector/SAM adapters — no
+real model weights were exercised. This mode is slower than whole-image
+comparison (one detector call per tile, one SAM call per fused proposal) and
+has not been run against real YOLO/RF-DETR/SAM weights or compared for actual
+accuracy improvement. Validate on the server before treating it as the
+recommended default, and expect proportionally longer runs on large/high-tile-
+count images.
+
+## Video cascade research (0.6.0, no code changes)
+
+The same question was asked for video: can the tile/ROI-crop pattern protect
+small objects in the continuous or bounded SAM 3.1 video paths the way it now
+does for images? Investigation (grep across `src/model_lab/` plus a read-only
+clone of the pinned `facebookresearch/sam3` commit `8f0b7f4d4e7eda2ed606ebde
+6702c93359ad01da`) found:
+
+- Neither `continuous_video.py` nor `bounded_video.py`/`bounded_worker.py`
+  ever calls the YOLO or RF-DETR adapters. Once SAM 3.1 is given a prompt, its
+  own `Sam3MultiplexTrackingProd.propagate_in_video()` generator owns frame
+  decoding and tracking end to end; our code only consumes
+  `(frame_index, outputs)` and manages rolling state/pruning around it.
+- Meta's runtime already supports injecting box prompts into a *live* video
+  session: `Sam3BasePredictor.add_prompt` (`sam3_base_predictor.py`) accepts
+  `bounding_boxes`/`bounding_box_labels` at any `frame_idx` mid-session. This
+  is not a gap that needs new upstream capability.
+- `model_comparison_lab` already exercises that exact mechanism today, but
+  only through `MetaSam3Adapter.run_video(mode="visual")` and its
+  `_prompt_request` helper (`adapters/meta_sam3.py`), reachable via
+  `model-lab sam-video --mode visual --object "b:x0,y0,x1,y1"` and the
+  **bounded/chunked fallback engine** (`bounded_worker.py`). Prompts there are
+  manually typed strings, never auto-generated from a detector.
+- The **continuous native engine** (`continuous_video.py`, the dashboard's
+  current default) does **not** go through `run_video`/`add_prompt`/
+  `handle_request` at all — it drives `Sam3MultiplexTrackingProd` directly
+  against a hand-managed `inference_state`. That custom loop was only just
+  stabilized through releases 0.5.1-0.5.3 by carefully mirroring Meta's exact
+  prompt/state initialization order.
+
+Conclusion for a future session: wiring tiled YOLO/RF-DETR keyframe detection
+into the **bounded/chunked engine** to auto-generate box prompts (feeding
+`objects=["b:...", ...]` into `run_video(mode="visual")`) is a contained,
+moderate-risk change because that engine already speaks the box-prompt API.
+Doing the same for the **continuous engine** means new surgery on the same
+rolling-window/pruning state machine that took three point releases to
+stabilize, and should wait until after the 0.5.3 server verification below has
+passed and there is capacity to test carefully on the L40S. No code was
+written for either video path this round — image cascade only.
+
 ## Immediate server verification checklist
 
 1. Stop the dashboard, pull commit `1697a0a`, reinstall editable Python, run
@@ -294,21 +388,25 @@ uv run --no-project --isolated --python 3.12 --with ruff \
   ruff check src/model_lab/__init__.py \
   src/model_lab/adapters/meta_sam3.py src/model_lab/bounded_video.py \
   src/model_lab/bounded_worker.py src/model_lab/continuous_video.py \
-  src/model_lab/cli.py \
+  src/model_lab/cli.py src/model_lab/cascade.py src/model_lab/tiling.py \
+  src/model_lab/fusion.py \
   src/model_lab/playground/app.py src/model_lab/playground/service.py \
   src/model_lab/playground/sessions.py \
   tests/test_bounded_video.py tests/test_continuous_video.py tests/test_config.py \
   tests/test_meta_sam3_adapter.py \
-  tests/test_cpp_bridge_contract.py
+  tests/test_cpp_bridge_contract.py \
+  tests/test_tiling.py tests/test_fusion.py tests/test_cascade.py
 ```
 
 Model-weight inference cannot be fully validated on the Mac. Previous local
 checks compiled the Q8 bridge against its exact pinned source, validated the
-H.264 test video's raw frame byte count, and tested rendering with H.264.
-The local suite reports 63 passed and one Torch-specific regression skipped because
-the isolated macOS runner has no Torch. A repository-wide Ruff run still reports four
-pre-existing import-order/unused-import findings in untouched files; changed
-files are clean.
+H.264 test video's raw frame byte count, and tested rendering with H.264. The
+image cascade mode (0.6.0) was tested only with fake detector/SAM adapters
+standing in for YOLO/RF-DETR/SAM, since real inference needs the server.
+The local suite reports 81 passed and one Torch-specific regression skipped
+because the isolated macOS runner has no Torch. A repository-wide Ruff run
+still reports four pre-existing import-order/unused-import findings in
+untouched files; changed files are clean.
 
 ## Documentation map
 
